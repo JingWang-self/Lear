@@ -1,0 +1,65 @@
+resume: #'/cluster/datastore/shahzaa/EZ_CLIP/Exp/clip_k400/ViT-L/14/kinetics400/base_to_novel_k400_ViT-14_s3/Best_epoch_6_model.pt'
+pretrain: 
+seed: 1024
+weight_save_dir: '/root/autodl-tmp/Exp_T_Adapter'
+use_motion_loss: True
+training_name: 'SeAct_train_vit_16_8_frame'
+T_Adapter: True
+prompt:
+    use: False
+    # num_of_token: 100 #197
+    # num_of_text_token: 50   #77
+    INITIATION: 'random' 
+    DEEP: True
+    DROPOUT: 0.1
+data:
+    dataset: SeAct
+    modality: RGB
+    num_segments: 8
+    seg_length: 1
+    batch_size:  16
+    workers: 16
+    num_classes: 58
+    image_tmpl: 'img_{:05d}.jpg'
+    use_llm: True
+    train_list: 'dataset_splits/SeAct/Zero-shot/train.txt'
+    val_list: 'dataset_splits/SeAct/Zero-shot/val.txt'
+    label_list: 'lists/seact_labels.csv'
+    gpt_discription:  'GPT_discription/SeAct_gpt_Class_discription_new.csv'
+    
+    index_bias: 1
+    input_size: 224
+    randaug:
+        N: 0 #2
+        M: 0  #9
+    random_shift: True
+network:
+    arch: ViT-B/16 #ViT-B/32 ViT-B/16  ViT-L/14
+    init: True
+    tsm: False
+    drop_out: 0.1
+    emb_dropout: 0.0 
+    type: clip_seact
+    sim_header: "Transf"  #Transf   meanP  LSTM Conv_1D Transf_cls
+    joint: False
+    describe:
+solver:
+    type: cosine
+    epochs: 200
+    start_epoch: 0
+    epoch_offset: 0
+    optim: adamw
+    lr: 1.e-4 #5.e-6
+    lr_warmup_step: 5
+    momentum: 0.9
+    weight_decay: 0.2
+    lr_decay_step: 15
+    lr_decay_factor: 0.1
+    clip_gradient: 20
+    loss_type: nll
+    evaluate: False
+    ratio: 1
+    f_ratio: 10
+logging:
+    print_freq: 10
+    eval_freq: 1

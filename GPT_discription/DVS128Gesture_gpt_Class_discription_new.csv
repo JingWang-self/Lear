@@ -1,0 +1,34 @@
+SNo,Class Name,Description
+0,hand_clapping,"
+
+hand clapping is a human action that involves striking one's hands together to produce a sharp, loud sound"
+1,right_hand_wave,"
+
+right hand wave is a human action that involves raising and moving the right hand side-to-side as a greeting or signal"
+2,left_hand_wave,"
+
+left hand wave is a human action that involves raising and moving the left hand side-to-side as a greeting or signal"
+3,right_arm_clockwise,"
+
+right arm clockwise is a human action that involves moving the right arm in a circular motion in a clockwise direction"
+4,right_arm_counter_clockwise,"
+
+right arm counter-clockwise is a human action that involves moving the right arm in a circular motion in a counter-clockwise direction"
+5,left_arm_clockwise,"
+
+left arm clockwise is a human action that involves moving the left arm in a circular motion in a clockwise direction"
+6,left_arm_counter_clockwise,"
+
+left arm counter-clockwise is a human action that involves moving the left arm in a circular motion in a counter-clockwise direction"
+7,arm_roll,"
+
+arm roll is a human action that involves rolling both arms in a circular motion"
+8,air_drums,"
+
+air drums is a human action that involves mimicking playing the drums in the air"
+9,air_guitar,"
+
+air guitar is a human action that involves mimicking playing the guitar in the air"
+10,other_gestures,"
+
+other gestures is a category that includes various other human hand and arm movements"

@@ -1,0 +1,60 @@
+T_Adapter: true
+data:
+  batch_size: 20
+  dataset: PAF
+  gpt_discription: GPT_discription/PAF_gpt_Class_discription_new.csv
+  image_tmpl: img_{:05d}.jpg
+  index_bias: 1
+  input_size: 224
+  label_list: lists/PAF_labels.csv
+  modality: RGB
+  num_classes: 10
+  num_segments: 8
+  randaug:
+    M: 0
+    N: 0
+  seg_length: 1
+  split: 1
+  use_llm: true
+  val_list: dataset_splits/PAF/Zero-shot/val.txt
+  workers: 8
+logging:
+  eval_freq: 1
+  print_freq: 10
+network:
+  arch: ViT-B/16
+  describe: null
+  drop_out: 0.1
+  emb_dropout: 0.0
+  init: true
+  joint: false
+  sim_header: Transf
+  tsm: false
+  type: CLIP_T_Adapter
+pretrain: /root/autodl-tmp/EZ_CLIP_events/clip_PAF/ViT-B/16/PAF/PAF_train_vit_16_T_adaptor_8_frame/model_best.pt
+prompt:
+  DEEP: true
+  DROPOUT: 0.1
+  INITIATION: random
+  use: false
+seed: 1024
+solver:
+  clip_gradient: 20
+  epoch_offset: 0
+  epochs: 150
+  evaluate: false
+  f_ratio: 10
+  loss_type: nll
+  lr: 1.0e-05
+  lr_decay_factor: 0.1
+  lr_decay_step: 15
+  lr_warmup_step: 5
+  momentum: 0.9
+  optim: adamw
+  ratio: 1
+  start_epoch: 0
+  type: cosine
+  weight_decay: 0.2
+training_name: PAF_zero_shot_testing_vit_16_8_frame
+use_motion_loss: true
+weight_save_dir: /root/autodl-tmp/EZ_CLIP_events
