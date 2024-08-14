@@ -108,7 +108,8 @@ class Action_DATASETS(data.Dataset):
     
     @property
     def classes(self):
-        classes_all = pd.read_csv(self.labels_file)
+        # self.labels_file:# id,name
+        classes_all = pd.read_csv(self.labels_file) 
         return classes_all.values.tolist()
     
     def _parse_list(self):

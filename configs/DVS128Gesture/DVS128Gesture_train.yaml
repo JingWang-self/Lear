@@ -31,7 +31,7 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: CLIP_T_Adapter
+  type: CLIP_T_Adapter # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
 pretrain: null
 prompt:
   DEEP: true
@@ -43,7 +43,7 @@ seed: 1024
 solver:
   clip_gradient: 20
   epoch_offset: 0
-  epochs: 200
+  epochs: 100
   evaluate: false
   f_ratio: 10
   loss_type: nll

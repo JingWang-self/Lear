@@ -3,7 +3,7 @@ import torch
 import clip
 import csv
 
-def text_prompt(data,gpt_discription,use_chat_gpt):
+def text_prompt(data, gpt_discription, use_chat_gpt):
     if not use_chat_gpt:
         text_aug = [f"a photo of action {{}}", f"a picture of action {{}}", f"Human action of {{}}", f"{{}}, an action",
                     f"{{}} this is an action", f"{{}}, a video of action", f"Playing action of {{}}", f"{{}}",
@@ -15,15 +15,18 @@ def text_prompt(data,gpt_discription,use_chat_gpt):
         text_dict = {}
         num_text_aug = len(text_aug)
 
-        for ii, txt in enumerate(text_aug):
-            text_dict[ii] = torch.cat([clip.tokenize(txt.format(c.replace('_',' '))) for i, c in data.classes])
+        for ii, txt in enumerate(text_aug): 
+            # data.classes: id,name->i,c
+            # ii: index in text_aug
+            text_dict[ii] = torch.cat([clip.tokenize(txt.format(c.replace('_',' '))) for i, c in data.classes]) 
+        # text_dict:{key:index in text_aug, value: tensor([n_cls, n_tkn])}
     else:   
         ################################### Chat GPT #######################################################
         dic ={}
         with open(gpt_discription, 'r') as file:
             csvreader = csv.reader(file)
             for row in csvreader:
-                dic.update({row[1]:row[2].replace('\n','')})
+                dic.update({row[1]:row[2].replace('\n','')}) # SNo,Class Name,GPT3 discription
         text_aug = [f"{{}}"]
         
         text_dict = {}
@@ -34,7 +37,7 @@ def text_prompt(data,gpt_discription,use_chat_gpt):
     ######################################################################################################
 
     
-
+    # classes: [num_text_aug, tensor([n_cls, n_tkn])]
     classes = torch.cat([v for k, v in text_dict.items()])
 
-    return classes, num_text_aug,text_dict
+    return classes, num_text_aug, text_dict

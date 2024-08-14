@@ -1,4 +1,3 @@
-# Language-guided Event-based Action Recognition (Lear)
 ## Data Preparation
 According to [ExACT/SeAct Dataset](https://github.com/jiazhou-garland/ExACT?tab=readme-ov-file#seact-dataset)
 Support on SeAct|PAF|DVS128Gesture
@@ -10,6 +9,10 @@ python train.py --config configs/DVS128Gesture/DVS128Gesture_train.yaml
 python train.py --config configs/PAF/PAF_train.yaml
 
 ```
+```
+# Let's try CoOp + EZ-CLIP
+python train_SoftTextPrompt_VisualPrompt.py --config /root/wj/EZ_CLIP/configs/SeAct/SeAct_train_CoOp.yaml
+
 
 ## Testing
 ```

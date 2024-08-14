@@ -88,7 +88,7 @@ def main():
     device = (
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # If using GPU then use mixed precision training.
-
+    
     model, clip_state_dict = clip.load(
         config.network.arch,
         config,
@@ -162,8 +162,8 @@ def main():
 
     ############################################################
     # prompt_vit_model = torch.nn.DataParallel(prompt_vit_model).cuda()
-    model_text = torch.nn.DataParallel(model_text, device_ids=[0,1]).cuda()
-    model_image = torch.nn.DataParallel(model_image, device_ids=[0,1]).cuda()
+    model_text = torch.nn.DataParallel(model_text, device_ids=[0]).cuda()
+    model_image = torch.nn.DataParallel(model_image, device_ids=[0]).cuda()
     ############################## dataset  loader ###################################
     train_data = Action_DATASETS(
         config.data.train_list,
@@ -307,13 +307,12 @@ def main():
             )  # omit the Image.fromarray if the images already in PIL format, change this line to images=list_image if using preprocess inside the dataset class
             texts = texts.to(device)
 
-            image_embedding = model_image(prompt_images)
-            image_embedding = image_embedding.view(b, t, -1)
+            image_embedding = model_image(prompt_images) # (b*t, emb_dim)
+            image_embedding = image_embedding.view(b, t, -1) # (b,t,emb_dim)
             if config.use_motion_loss:
                 loss_video_motion = loss_motion(image_embedding)
-            image_embedding = image_embedding.mean(dim=1, keepdim=False)
-
-            text_embedding = model_text(texts)
+            image_embedding = image_embedding.mean(dim=1, keepdim=False) # (b,emb_dim)
+            text_embedding = model_text(texts) # (b,emb_dim)
 
             if config.network.fix_text:
                 text_embedding.detach_()
@@ -326,6 +325,14 @@ def main():
             ground_truth = torch.tensor(
                 gen_label(list_id), dtype=image_embedding.dtype, device=device
             )
+            #!To Remove##############################
+            '''
+            print(f'logits_per_image.shape:{logits_per_image.shape}, ground_truth.shape:{ground_truth.shape}')
+            print(f'logits_per_text.shape:{logits_per_text.shape}, ground_truth.shape:{ground_truth.shape}')
+            logits_per_image.shape:torch.Size([16, 58]), ground_truth.shape:torch.Size([16, 16])
+            logits_per_text.shape:torch.Size([58, 16]), ground_truth.shape:torch.Size([16, 16])
+            '''
+            #!##############################
             loss_imgs = loss_img(logits_per_image, ground_truth)
             loss_texts = loss_txt(logits_per_text, ground_truth)
             if config.use_motion_loss:
@@ -491,6 +498,7 @@ def main():
         print(
             "------------------------------------------------------------------------"
         )
+
 
 
 if __name__ == "__main__":

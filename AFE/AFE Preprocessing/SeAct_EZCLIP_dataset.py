@@ -64,6 +64,12 @@ class SeACT(Dataset):
         all_frame = self.adaptive_event_sampling(events_stream)
         all_frame = np.array(all_frame) 
         
+        t, _, _, c = all_frame.shape 
+        # Ensure events_data has at least min_frame_num frames
+        if t < self.min_frame_num:
+            # Pad events_data with additional frames
+            pad_frames = np.zeros((self.min_frame_num - t, self.height, self.width, c)) # min-T, H, W, 3
+            all_frame = np.concatenate((all_frame, pad_frames), axis=0)
 
         events_data = all_frame.transpose(3, 0, 1, 2)  # T,H,W,3 -> 3,T,H,W
         

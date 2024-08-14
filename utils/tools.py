@@ -25,8 +25,8 @@ def convert_models_to_fp16(model):
 
 
 def create_logits(x1, x2, logit_scale):
-    x1 = x1 / x1.norm(dim=-1, keepdim=True)
-    x2 = x2 / x2.norm(dim=-1, keepdim=True)
+    x1 = x1 / x1.norm(dim=-1, keepdim=True) # (b,emb_dim)
+    x2 = x2 / x2.norm(dim=-1, keepdim=True) # (b,emb_dim)
 
     # cosine similarity as logits
     logits_per_x1 = logit_scale * x1 @ x2.t()

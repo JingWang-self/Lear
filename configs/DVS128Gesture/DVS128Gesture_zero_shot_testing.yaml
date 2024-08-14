@@ -30,7 +30,7 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: CLIP_T_Adapter
+  type: CLIP_T_Adapter # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
 pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_T_Adapter/ViT-B/16/DVS128Gesture/DVS128Gesture_train_vit_16_8_frame/model_best.pt
 prompt:
   DEEP: true

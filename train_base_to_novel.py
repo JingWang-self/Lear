@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 from utils.KLLoss import *
-from test import validate
+from test_CoOp_2 import validate
 from utils.Augmentation import *
 from utils.solver import _optimizer,  _lr_scheduler
 from utils.tools import *

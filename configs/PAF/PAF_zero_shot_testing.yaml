@@ -30,7 +30,7 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: CLIP_T_Adapter
+  type: CLIP_T_Adapter # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
 pretrain: /root/autodl-tmp/EZ_CLIP_events/clip_PAF/ViT-B/16/PAF/PAF_train_vit_16_T_adaptor_8_frame/model_best.pt
 prompt:
   DEEP: true
