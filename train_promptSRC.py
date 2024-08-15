@@ -14,20 +14,21 @@ import yaml
 from dotmap import DotMap
 import pprint
 import time
+from imagenet_templates import IMAGENET_TEMPLATES
 
 
 import matplotlib.pyplot as plt
 import numpy as np
 import math
 from utils.KLLoss import *
-from test import validate
+from test_promptSRC import validate
 from utils.Augmentation import *
 from utils.solver import _optimizer, _lr_scheduler
 from utils.tools import *
 from utils.Text_Prompt import *
 from utils.saving import *
 
-import clip 
+from clip import clip
 from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
 
 _tokenizer = _Tokenizer()
@@ -35,6 +36,60 @@ _tokenizer = _Tokenizer()
 
 
 #!New Added#####################################################################
+def load_clip_to_cpu(cfg, zero_shot_model=False):
+    backbone_name = cfg.network.arch
+    if backbone_name in clip._MODELS:
+        model_path = clip._download(clip._MODELS[backbone_name])
+    elif os.path.isfile(backbone_name):
+        model_path = backbone_name
+    
+    try:
+        # loading JIT archive
+        model = torch.jit.load(model_path, map_location="cpu").eval()
+        state_dict = None
+
+    except RuntimeError:
+        state_dict = torch.load(model_path, map_location="cpu")
+    if not zero_shot_model:
+        design_details = {"trainer": 'IVLP',
+                          "vision_depth": cfg.PROMPTSRC.PROMPT_DEPTH_VISION,
+                          "language_depth": cfg.PROMPTSRC.PROMPT_DEPTH_TEXT,
+                          "vision_ctx": cfg.PROMPTSRC.N_CTX_VISION,
+                          "language_ctx": cfg.PROMPTSRC.N_CTX_TEXT}
+        model, clip_state_dict = clip.load(
+            cfg.network.arch,
+            cfg,
+            device=torch.device('cpu'),
+            jit=False,
+            tsm=cfg.network.tsm,
+            T=cfg.data.num_segments,
+            dropout=cfg.network.drop_out,
+            emb_dropout=cfg.network.emb_dropout,
+            pretrain=cfg.network.init,
+            joint=cfg.network.joint,
+            design_details=design_details
+        )  # Must set jit=False for training  ViT-B/32
+    else:
+        # Return original CLIP model for generating frozen VL features
+        design_details = {"trainer": 'IVLP',
+                          "vision_depth": 0,
+                          "language_depth": 0, "vision_ctx": 0,
+                          "language_ctx": 0}
+        model, clip_state_dict = clip.load(
+            cfg.network.arch,
+            cfg,
+            device=torch.device('cpu'),
+            jit=False,
+            tsm=cfg.network.tsm,
+            T=cfg.data.num_segments,
+            dropout=cfg.network.drop_out,
+            emb_dropout=cfg.network.emb_dropout,
+            pretrain=cfg.network.init,
+            joint=cfg.network.joint,
+            design_details=design_details
+        )  # Must set jit=False for training  ViT-B/32
+        return model
+    return model
 class TextEncoder(nn.Module):
     def __init__(self, clip_model):
         super().__init__()
@@ -44,10 +99,8 @@ class TextEncoder(nn.Module):
         self.text_projection = clip_model.text_projection
         self.dtype = clip_model.dtype
 
-    def forward(self, prompts, tokenized_prompts): 
-        #! prompts: the learnable context
-        #! tokenized_prompts: tokenizerd text, including class infomation
-        x = prompts + self.positional_embedding.type(self.dtype) 
+    def forward(self, prompts, tokenized_prompts):
+        x = prompts + self.positional_embedding.type(self.dtype)
         x = x.permute(1, 0, 2)  # NLD -> LND
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
@@ -58,62 +111,71 @@ class TextEncoder(nn.Module):
         x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
 
         return x
-    
-class PromptLearner(nn.Module):
+
+
+class VLPromptLearner(nn.Module):
     def __init__(self, cfg, classnames, clip_model):
         super().__init__()
         n_cls = len(classnames)
-        n_ctx = cfg.COCOOP.N_CTX
-        ctx_init = cfg.COCOOP.CTX_INIT
+        # Make sure Language depth >= 1
+        assert cfg.PROMPTSRC.PROMPT_DEPTH_TEXT >= 1, "In Independent VL prompting, Language prompt depth should be >=1" \
+                                                        "\nPlease use VPT trainer if you want to learn only vision " \
+                                                        "branch"
+        n_ctx = cfg.PROMPTSRC.N_CTX_TEXT
+        ctx_init = cfg.PROMPTSRC.CTX_INIT
         dtype = clip_model.dtype
         ctx_dim = clip_model.ln_final.weight.shape[0]
-        vis_dim = clip_model.visual.output_dim #! add
         clip_imsize = clip_model.visual.input_resolution
         cfg_imsize = cfg.data.input_size
         assert cfg_imsize == clip_imsize, f"cfg_imsize ({cfg_imsize}) must equal to clip_imsize ({clip_imsize})"
 
-        if ctx_init:
+        if ctx_init and n_ctx <= 4:
             # use given words to initialize context vectors
             ctx_init = ctx_init.replace("_", " ")
-            n_ctx = len(ctx_init.split(" "))
+            n_ctx = n_ctx
             prompt = clip.tokenize(ctx_init)
             with torch.no_grad():
                 embedding = clip_model.token_embedding(prompt).type(dtype)
-            ctx_vectors = embedding[0, 1 : 1 + n_ctx, :]
+            ctx_vectors = embedding[0, 1: 1 + n_ctx, :]
             prompt_prefix = ctx_init
         else:
             # random initialization
             ctx_vectors = torch.empty(n_ctx, ctx_dim, dtype=dtype)
             nn.init.normal_(ctx_vectors, std=0.02)
             prompt_prefix = " ".join(["X"] * n_ctx)
-
-        print(f'Initial context: "{prompt_prefix}"')
-        print(f"Number of context words (tokens): {n_ctx}")
-
-        self.ctx = nn.Parameter(ctx_vectors)  # to be optimized
-
-        self.meta_net = nn.Sequential(OrderedDict([ #! add, to be optimized
-            ("linear1", nn.Linear(vis_dim, vis_dim // 16)),
-            ("relu", nn.ReLU(inplace=True)),
-            ("linear2", nn.Linear(vis_dim // 16, ctx_dim))
-        ]))
-
-        if cfg.COCOOP.PREC == "fp16":
-            self.meta_net.half()
+        print(f"Independent V-L design")
+        print(f'Initial text context: "{prompt_prefix}"')
+        print(f"Number of context words (tokens) for Language prompting: {n_ctx}")
+        print(f"Number of context words (tokens) for Vision prompting: {cfg.PROMPTSRC.N_CTX_VISION}")
+        self.ctx = nn.Parameter(ctx_vectors)
 
         classnames = [name.replace("_", " ") for name in classnames]
         name_lens = [len(_tokenizer.encode(name)) for name in classnames]
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
 
         tokenized_prompts = torch.cat([clip.tokenize(p) for p in prompts])  # (n_cls, n_tkn)
+        # Also create frozen CLIP
+        # clip_model_temp = load_clip_to_cpu(cfg, True).float().cuda() #TODO: Revise
+        clip_model_temp = load_clip_to_cpu(cfg, True).cuda() #TODO: Revise
+        clip_model_temp_image = load_clip_to_cpu(cfg, True) #TODO: Revise
         with torch.no_grad():
             embedding = clip_model.token_embedding(tokenized_prompts).type(dtype)
+            self.ZS_image_encoder = clip_model_temp_image.visual
+            # Now pre-compute the frozen VL embeddings
+            all_teacher_features = []
+            # Using multiple text templates to ensure textual diversity during training
+            for single_template in IMAGENET_TEMPLATES:
+                x = [single_template.replace("{}", name) for name in classnames]
+                x_tokenized = torch.cat([clip.tokenize(p) for p in x])
+                text_features = clip_model_temp.encode_text(x_tokenized.cuda())
+                all_teacher_features.append(text_features.unsqueeze(1))
 
+        self.fixed_embeddings = torch.cat(all_teacher_features, dim=1).mean(dim=1)
         # These token vectors will be saved when in save_model(),
         # but they should be ignored in load_model() as we want to use
         # those computed using the current class names
         self.register_buffer("token_prefix", embedding[:, :1, :])  # SOS
-        self.register_buffer("token_suffix", embedding[:, 1 + n_ctx :, :])  # CLS, EOS
+        self.register_buffer("token_suffix", embedding[:, 1 + n_ctx:, :])  # CLS, EOS
 
         self.n_cls = n_cls
         self.n_ctx = n_ctx
@@ -129,69 +191,72 @@ class PromptLearner(nn.Module):
         if label is not None:
             prefix = prefix[label]
             suffix = suffix[label]
+
         prompts = torch.cat(
             [
                 prefix,  # (dim0, 1, dim)
-                ctx,     # (dim0, n_ctx, dim)
+                ctx,  # (dim0, n_ctx, dim)
                 suffix,  # (dim0, *, dim)
             ],
             dim=1,
         )
+
         return prompts
 
-    def forward(self, im_features):
+    def forward(self):
+        ctx = self.ctx
+        if ctx.dim() == 2:
+            ctx = ctx.unsqueeze(0).expand(self.n_cls, -1, -1)
+
         prefix = self.token_prefix
         suffix = self.token_suffix
-        ctx = self.ctx  # (n_ctx, ctx_dim)
-        bias = self.meta_net(im_features)  # (batch, ctx_dim)
-        bias = bias.unsqueeze(1)  # (batch, 1, ctx_dim)
-        ctx = ctx.unsqueeze(0)  # (1, n_ctx, ctx_dim)
-        ctx_shifted = ctx + bias  # (batch, n_ctx, ctx_dim)
+        prompts = self.construct_prompts(ctx, prefix, suffix)
 
-        # Use instance-conditioned context tokens for all classes
-        prompts = []
-        for ctx_shifted_i in ctx_shifted:
-            ctx_i = ctx_shifted_i.unsqueeze(0).expand(self.n_cls, -1, -1)
-            pts_i = self.construct_prompts(ctx_i, prefix, suffix)  # (n_cls, n_tkn, ctx_dim)
-            prompts.append(pts_i)
-        prompts = torch.stack(prompts)
         return prompts
 
 
 class CustomCLIP(nn.Module):
     def __init__(self, cfg, classnames, clip_model):
         super().__init__()
-        self.prompt_learner = PromptLearner(cfg, classnames, clip_model)
+        self.prompt_learner = VLPromptLearner(cfg, classnames, clip_model)
         self.tokenized_prompts = self.prompt_learner.tokenized_prompts
         self.image_encoder = clip_model.visual
         self.text_encoder = TextEncoder(clip_model)
         self.logit_scale = clip_model.logit_scale
         self.dtype = clip_model.dtype
+        self.total_epochs = cfg.OPTIM.MAX_EPOCH
+        self.n_cls = len(classnames)
 
-    def forward(self, image_features, label=None):
-
-        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-
-        logit_scale = self.logit_scale.exp()
+    def forward(self, image, image_features, label=None):
         tokenized_prompts = self.tokenized_prompts
-        prompts = self.prompt_learner(image_features)
+        logit_scale = self.logit_scale.exp()
 
-        logits = []
-        for pts_i, imf_i in zip(prompts, image_features):
-            text_features = self.text_encoder(pts_i, tokenized_prompts)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            l_i = logit_scale * imf_i @ text_features.t()
-            logits.append(l_i)
-        logits = torch.stack(logits)
-
+        prompts = self.prompt_learner()
+        # Compute the prompted image and text features
+        text_features = self.text_encoder(prompts, tokenized_prompts)
+       
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        # Compute the prompted logits
+        logits = logit_scale * image_features @ text_features.t()
         if self.prompt_learner.training:
-            return F.cross_entropy(logits, label)
+            # Now calculate the frozen pre-trained features
+            fixed_embeddings = self.prompt_learner.fixed_embeddings  # precomputed pre-trained frozen textual features
+            fixed_embeddings = fixed_embeddings / fixed_embeddings.norm(dim=-1, keepdim=True)
+            with torch.no_grad():
+                zero_shot_features = self.prompt_learner.ZS_image_encoder(image.type(self.dtype))
+                zero_shot_features = zero_shot_features / zero_shot_features.norm(dim=-1, keepdim=True)
+                # Compute pre-trained frozen visual features
+                zero_shot_logits = logit_scale * zero_shot_features.cuda() @ fixed_embeddings.half().cuda().t()
 
-        # logits: (batch, n_cls)
-        return logits
+            return F.cross_entropy(logits,
+                                   label), text_features, fixed_embeddings, zero_shot_features, \
+                   image_features, zero_shot_logits, logits
+        else:
+            return logits
     
     def encode_image(self, image):
-        return  self.image_encoder(image.type(self.dtype))
+        return self.image_encoder(image.type(self.dtype))
     
 #!##############################################################################
 '''
@@ -258,6 +323,11 @@ def main():
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # If using GPU then use mixed precision training.
 
+    design_details = {"trainer": 'IVLP',
+                        "vision_depth": config.PROMPTSRC.PROMPT_DEPTH_VISION,
+                        "language_depth": config.PROMPTSRC.PROMPT_DEPTH_TEXT,
+                        "vision_ctx": config.PROMPTSRC.N_CTX_VISION,
+                        "language_ctx": config.PROMPTSRC.N_CTX_TEXT}
     model, clip_state_dict = clip.load(
         config.network.arch,
         config,
@@ -269,6 +339,7 @@ def main():
         emb_dropout=config.network.emb_dropout,
         pretrain=config.network.init,
         joint=config.network.joint,
+        design_details=design_details
     )  # Must set jit=False for training  ViT-B/32
     transform_train = get_augmentation(True, config)
     transform_val = get_augmentation(False, config)
@@ -319,9 +390,13 @@ def main():
     print("Turning off gradients in both the image and the text encoder")
     for name, param in customCLIP.named_parameters():
         if "prompt_learner" not in name and "prompt" not in name and "Adapter" not in name: # EZ_CLIP + CoOp
-        # if "prompt_learner" not in name : # only CoOp
-        # if "prompt" not in name and "Adapter" not in name or "prompt_learner" in name: # EZ-CLIP
-            param.requires_grad_(False)
+            if "VPT" in name:
+                param.requires_grad_(True)
+            else:
+                param.requires_grad_(False)
+        else:
+            if "ZS_image_encoder" in name:
+                param.requires_grad_(False)
     customCLIP = torch.nn.DataParallel(customCLIP, device_ids=[0]).cuda()
     #! ############
     ''' #! original
@@ -329,17 +404,22 @@ def main():
     model_image = ImageCLIP(model)
 
     '''
-    text_param_count = 0
+    prompt_learner_param_count = 0
     param_count_with_prompts = 0
     param_count_with_adapters = 0
     visual_param_count_with_adapters = 0
     visual_param_count_with_T_adapters = 0
+    VPT_param_count = 0
     for name, param in customCLIP.named_parameters():
         if "prompt_learner" in name:
             print("prompt_learner--", name)
-            text_param_count += param.numel()
+            prompt_learner_param_count += param.numel()
         elif "prompt" in name:
+            print("prompt--", name)
             param_count_with_prompts += param.numel()
+        if "ZS_image_encoder" in name:
+            prompt_learner_param_count -= param.numel()
+            print("ZS_image_encoder--", name)
         if "Adapter" in name and not "visual" in name:
             print("text---", name)
             param_count_with_adapters += param.numel()
@@ -349,6 +429,9 @@ def main():
         if "T_Adapter" in name and "visual" in name:
             print("temporal visual--", name)
             visual_param_count_with_T_adapters += param.numel()
+        if "VPT" in name:
+            print("VPT--", name)
+            VPT_param_count += param.numel()
             
     param_count_with_prompts_in_million = param_count_with_prompts / 1_000_000
     param_count_with_adapter_in_million = (param_count_with_adapters) / 1_000_000
@@ -358,7 +441,8 @@ def main():
     S_visual_param_count_with_adapter_in_million = (
         visual_param_count_with_adapters - visual_param_count_with_T_adapters
     ) / 1_000_000
-    text_param_count_in_million = text_param_count / 1_000_000
+    prompt_learner_param_count_in_million = prompt_learner_param_count / 1_000_000
+    VPT_param_count_in_million = VPT_param_count / 1_000_000
     # Print the count
     print(
         f'Number of Trainable Parameters with "prompts" in their names: {param_count_with_prompts_in_million:.3f}'
@@ -373,7 +457,10 @@ def main():
         f'Number of Trainable Parameters with "T visual adapters" in their names: {T_visual_param_count_with_adapter_in_million:.3f}'
     )
     print(
-        f'Number of Trainable Parameters with "prompt_learner" in their names: {text_param_count_in_million:.3f}'
+        f'Number of Trainable Parameters with "prompt_learner" in their names: {prompt_learner_param_count_in_million:.3f}'
+    )
+    print(
+        f'Number of Trainable Parameters with "VPT" in their names: {VPT_param_count_in_million:.3f}'
     )
     
     '''
@@ -529,9 +616,22 @@ def main():
                 image_embedding, text_embedding, logit_scale
             )
             '''
-            loss_imgs = customCLIP(
-                image_embedding, list_id
-            )
+            loss_ce, normalized_text_features, zs_clip_text_embeddings, zs_image_embedd, image_ft, \
+            zero_shot_logits, logits = customCLIP(prompt_images, image_embedding, list_id)
+            loss_scl_text = F.l1_loss(normalized_text_features, zs_clip_text_embeddings.cuda(),
+                                      reduction='mean') * config.PROMPTSRC.TEXT_LOSS_WEIGHT
+            # Calculate the L_SCL_image loss
+            loss_scl_image = F.l1_loss(image_ft, zs_image_embedd.cuda(),
+                                       reduction='mean') * config.PROMPTSRC.IMAGE_LOSS_WEIGHT
+            # Now calculate L_SCL_logits
+            L_SCL_logits = F.kl_div(
+                F.log_softmax(logits / 1, dim=1),
+                F.log_softmax(zero_shot_logits / 1, dim=1),
+                reduction='sum',
+                log_target=True
+            ) * (1 * 1) / logits.numel()
+            L_SCL = (L_SCL_logits + loss_scl_text + loss_scl_image)
+            loss = (loss_ce + L_SCL)
             '''
             ground_truth = torch.tensor(
                 gen_label(list_id), dtype=image_embedding.dtype, device=device
@@ -558,9 +658,9 @@ def main():
                 total_loss = (loss_imgs + loss_texts) / 2
             '''
             if config.use_motion_loss:
-                total_loss = loss_imgs + loss_video_motion
+                total_loss = loss + loss_video_motion
             else:
-                total_loss = loss_imgs
+                total_loss = loss
             
             epoch_loss.append(total_loss.item())
             total_loss.backward()
@@ -575,13 +675,13 @@ def main():
             if kkk % 100 == 0:
                 if config.use_motion_loss:
                     print(
-                        "Epoch:%d  iteration:%d/%d, total loss:%f, image loss:%f, motion loss:%f, lr:%f "
+                        "Epoch:%d  iteration:%d/%d, total loss:%f, promptSRC loss:%f, motion loss:%f, lr:%f "
                         % (
                             epoch,
                             kkk,
                             len(train_loader),
                             total_loss.item(),
-                            loss_imgs.item(),
+                            loss.item(),
                             # loss_texts.item(),
                             loss_video_motion.item(),
                             optimizer.param_groups[0]["lr"],
@@ -589,13 +689,13 @@ def main():
                     )
                 else:
                     print(
-                        "Epoch:%d  iteration:%d/%d, total loss:%f, image loss:%f, lr:%f "
+                        "Epoch:%d  iteration:%d/%d, total loss:%f, promptSRC loss:%f, lr:%f "
                         % (
                             epoch,
                             kkk,
                             len(train_loader),
                             total_loss.item(),
-                            loss_imgs.item(),
+                            loss.item(),
                             # loss_texts.item(),
                             optimizer.param_groups[0]["lr"],
                         )
@@ -625,13 +725,13 @@ def main():
                 f.write("\n")
                 if config.use_motion_loss:
                     f.write(
-                        "Epoch:%d  iteration:%d/%d, total loss:%f, image loss:%f, motion loss:%f, lr:%f \n"
+                        "Epoch:%d  iteration:%d/%d, total loss:%f, promptSRC loss:%f, motion loss:%f, lr:%f \n"
                         % (
                             epoch,
                             kkk,
                             len(train_loader),
                             total_loss.item(),
-                            loss_imgs.item(),
+                            loss.item(),
                             # loss_texts.item(),
                             loss_video_motion.item(),
                             optimizer.param_groups[0]["lr"],
@@ -639,13 +739,13 @@ def main():
                     )
                 else:
                     f.write(
-                        "Epoch:%d  iteration:%d/%d, total loss:%f, image loss:%f, lr:%f \n"
+                        "Epoch:%d  iteration:%d/%d, total loss:%f, promptSRC loss:%f, lr:%f \n"
                         % (
                             epoch,
                             kkk,
                             len(train_loader),
                             total_loss.item(),
-                            loss_imgs.item(),
+                            loss.item(),
                             # loss_texts.item(),
                             optimizer.param_groups[0]["lr"],
                         )
@@ -658,13 +758,13 @@ def main():
             with open(txt_path, mode="wt") as f:
                 if config.use_motion_loss:
                     f.write(
-                        "Epoch:%d  iteration:%d/%d, total loss:%f, image loss:%f, motion loss:%f, lr:%f \n"
+                        "Epoch:%d  iteration:%d/%d, total loss:%f, promptSRC loss:%f, motion loss:%f, lr:%f \n"
                         % (
                             epoch,
                             kkk,
                             len(train_loader),
                             total_loss.item(),
-                            loss_imgs.item(),
+                            loss.item(),
                             # loss_texts.item(),
                             loss_video_motion.item(),
                             optimizer.param_groups[0]["lr"],
@@ -672,13 +772,13 @@ def main():
                     )
                 else:
                     f.write(
-                        "Epoch:%d  iteration:%d/%d, total loss:%f, image loss:%f, lr:%f \n"
+                        "Epoch:%d  iteration:%d/%d, total loss:%f, promptSRC loss:%f, lr:%f \n"
                         % (
                             epoch,
                             kkk,
                             len(train_loader),
                             total_loss.item(),
-                            loss_imgs.item(),
+                            loss.item(),
                             # loss_texts.item(),
                             optimizer.param_groups[0]["lr"],
                         )

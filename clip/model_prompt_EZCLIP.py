@@ -12,6 +12,234 @@ from einops import rearrange
 import cv2
 
 
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1):
+        super().__init__()
+
+        # all conv layers have stride 1. an avgpool is performed after the second convolution when stride > 1
+        self.conv1 = nn.Conv2d(inplanes, planes, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+
+        self.conv2 = nn.Conv2d(planes, planes, 3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+
+        self.avgpool = nn.AvgPool2d(stride) if stride > 1 else nn.Identity()
+
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, 1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = None
+        self.stride = stride
+
+        if stride > 1 or inplanes != planes * Bottleneck.expansion:
+            # downsampling layer is prepended with an avgpool, and the subsequent convolution has stride 1
+            self.downsample = nn.Sequential(
+                OrderedDict(
+                    [
+                        ("-1", nn.AvgPool2d(stride)),
+                        (
+                            "0",
+                            nn.Conv2d(
+                                inplanes,
+                                planes * self.expansion,
+                                1,
+                                stride=1,
+                                bias=False,
+                            ),
+                        ),
+                        ("1", nn.BatchNorm2d(planes * self.expansion)),
+                    ]
+                )
+            )
+
+    def forward(self, x: torch.Tensor):
+        identity = x
+
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.relu(self.bn2(self.conv2(out)))
+        out = self.avgpool(out)
+        out = self.bn3(self.conv3(out))
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+        out = self.relu(out)
+        return out
+
+
+class AttentionPool2d(nn.Module):
+    def __init__(
+        self, spacial_dim: int, embed_dim: int, num_heads: int, output_dim: int = None
+    ):
+        super().__init__()
+        self.positional_embedding = nn.Parameter(
+            torch.randn(spacial_dim**2 + 1, embed_dim) / embed_dim**0.5
+        )
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.c_proj = nn.Linear(embed_dim, output_dim or embed_dim)
+        self.num_heads = num_heads
+
+    def forward(self, x):
+        x = x.reshape(x.shape[0], x.shape[1], x.shape[2] * x.shape[3]).permute(
+            2, 0, 1
+        )  # NCHW -> (HW)NC
+        x = torch.cat([x.mean(dim=0, keepdim=True), x], dim=0)  # (HW+1)NC
+        x = x + self.positional_embedding[:, None, :].to(x.dtype)  # (HW+1)NC
+        x, _ = F.multi_head_attention_forward(
+            query=x,
+            key=x,
+            value=x,
+            embed_dim_to_check=x.shape[-1],
+            num_heads=self.num_heads,
+            q_proj_weight=self.q_proj.weight,
+            k_proj_weight=self.k_proj.weight,
+            v_proj_weight=self.v_proj.weight,
+            in_proj_weight=None,
+            in_proj_bias=torch.cat(
+                [self.q_proj.bias, self.k_proj.bias, self.v_proj.bias]
+            ),
+            bias_k=None,
+            bias_v=None,
+            add_zero_attn=False,
+            dropout_p=0,
+            out_proj_weight=self.c_proj.weight,
+            out_proj_bias=self.c_proj.bias,
+            use_separate_proj_weight=True,
+            training=self.training,
+            need_weights=False,
+        )
+
+        return x[0]
+
+
+class ModifiedResNet(nn.Module):
+    """
+    A ResNet class that is similar to torchvision's but contains the following changes:
+    - There are now 3 "stem" convolutions as opposed to 1, with an average pool instead of a max pool.
+    - Performs anti-aliasing strided convolutions, where an avgpool is prepended to convolutions with stride > 1
+    - The final pooling layer is a QKV attention instead of an average pool
+    """
+
+    def __init__(self, layers, output_dim, heads, input_resolution=224, width=64):
+        super().__init__()
+        self.output_dim = output_dim
+        self.input_resolution = input_resolution
+
+        # the 3-layer stem
+        self.conv1 = nn.Conv2d(
+            3, width // 2, kernel_size=3, stride=2, padding=1, bias=False
+        )
+        self.bn1 = nn.BatchNorm2d(width // 2)
+        self.conv2 = nn.Conv2d(
+            width // 2, width // 2, kernel_size=3, padding=1, bias=False
+        )
+        self.bn2 = nn.BatchNorm2d(width // 2)
+        self.conv3 = nn.Conv2d(width // 2, width, kernel_size=3, padding=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(width)
+        self.avgpool = nn.AvgPool2d(2)
+        self.relu = nn.ReLU(inplace=True)
+
+        # residual layers
+        self._inplanes = width  # this is a *mutable* variable used during construction
+        self.layer1 = self._make_layer(width, layers[0])
+        self.layer2 = self._make_layer(width * 2, layers[1], stride=2)
+        self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
+        self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
+
+        embed_dim = width * 32  # the ResNet feature dimension
+        self.attnpool = AttentionPool2d(
+            input_resolution // 32, embed_dim, heads, output_dim
+        )
+
+    def _make_layer(self, planes, blocks, stride=1):
+        layers = [Bottleneck(self._inplanes, planes, stride)]
+
+        self._inplanes = planes * Bottleneck.expansion
+        for _ in range(1, blocks):
+            layers.append(Bottleneck(self._inplanes, planes))
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        def stem(x):
+            for conv, bn in [
+                (self.conv1, self.bn1),
+                (self.conv2, self.bn2),
+                (self.conv3, self.bn3),
+            ]:
+                x = self.relu(bn(conv(x)))
+            x = self.avgpool(x)
+            return x
+
+        x = x.type(self.conv1.weight.dtype)
+        x = stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.attnpool(x)
+
+        return x
+
+
+#################################### My Changes ########################################
+class Adapter(nn.Module):
+    def __init__(
+        self, D_features, mlp_ratio=0.25, act_layer=nn.GELU, skip_connect=True
+    ):
+        super().__init__()
+        self.skip_connect = skip_connect
+        D_hidden_features = int(D_features * mlp_ratio)
+        self.act = act_layer()
+        self.D_fc1 = nn.Linear(D_features, D_hidden_features)
+        self.D_fc2 = nn.Linear(D_hidden_features, D_features)
+
+    def forward(self, x):
+        # x is (BT, HW+1, D)
+        xs = self.D_fc1(x)
+        xs = self.act(xs)
+        xs = self.D_fc2(xs)
+        if self.skip_connect:
+            x = x + xs
+        else:
+            x = xs
+        return x
+
+
+class Adapter_new(nn.Module):
+    def __init__(
+        self, D_features, mlp_ratio=0.25, act_layer=nn.GELU, skip_connect=True
+    ):
+        super().__init__()
+        self.skip_connect = skip_connect
+        D_hidden_features = int(D_features * mlp_ratio)
+        self.act = act_layer()
+        self.D_fc1 = nn.Linear(D_features, D_hidden_features)
+        self.D_fc2 = nn.Linear(D_hidden_features, D_features)
+        self.attn = nn.MultiheadAttention(
+            D_features,
+            16,
+        )
+
+    def forward(self, x):
+        # x is (BT, HW+1, D)
+        x = x + self.attn(x, x, x, need_weights=False, attn_mask=None)[0]
+        xs = self.D_fc1(x)
+        xs = self.act(xs)
+        xs = self.D_fc2(xs)
+        if self.skip_connect:
+            x = x + xs
+        else:
+            x = xs
+        return x
+
+
 def tensor_image_old(attn_weight):
     for i, weight in enumerate(attn_weight):
         heatmap = F.interpolate(
@@ -82,7 +310,7 @@ class DropPath(nn.Module):
 
     def forward(self, x):
         return drop_path(x, self.drop_prob, self.training)
-
+#############################################################################################
 
 class LayerNorm(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16."""
@@ -96,58 +324,6 @@ class LayerNorm(nn.LayerNorm):
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
         return x * torch.sigmoid(1.702 * x)
-
-
-#################################### My Changes ########################################
-class Adapter(nn.Module):
-    def __init__(
-        self, D_features, mlp_ratio=0.25, act_layer=nn.GELU, skip_connect=True
-    ):
-        super().__init__()
-        self.skip_connect = skip_connect
-        D_hidden_features = int(D_features * mlp_ratio)
-        self.act = act_layer()
-        self.D_fc1 = nn.Linear(D_features, D_hidden_features)
-        self.D_fc2 = nn.Linear(D_hidden_features, D_features)
-
-    def forward(self, x):
-        # x is (BT, HW+1, D)
-        xs = self.D_fc1(x)
-        xs = self.act(xs)
-        xs = self.D_fc2(xs)
-        if self.skip_connect:
-            x = x + xs
-        else:
-            x = xs
-        return x
-
-
-class Adapter_new(nn.Module):
-    def __init__(
-        self, D_features, mlp_ratio=0.25, act_layer=nn.GELU, skip_connect=True
-    ):
-        super().__init__()
-        self.skip_connect = skip_connect
-        D_hidden_features = int(D_features * mlp_ratio)
-        self.act = act_layer()
-        self.D_fc1 = nn.Linear(D_features, D_hidden_features)
-        self.D_fc2 = nn.Linear(D_hidden_features, D_features)
-        self.attn = nn.MultiheadAttention(
-            D_features,
-            16,
-        )
-
-    def forward(self, x):
-        # x is (BT, HW+1, D)
-        x = x + self.attn(x, x, x, need_weights=False, attn_mask=None)[0]
-        xs = self.D_fc1(x)
-        xs = self.act(xs)
-        xs = self.D_fc2(xs)
-        if self.skip_connect:
-            x = x + xs
-        else:
-            x = xs
-        return x
 
 
 class ResidualAttentionBlock(nn.Module):
@@ -204,16 +380,6 @@ class ResidualAttentionBlock(nn.Module):
         )
         return self.attn(x, x, x, need_weights=True, attn_mask=self.attn_mask)[1]
 
-    # for n, m in self.named_modules():
-    #     if 'my_fc' in n:
-    #         # print('My fc is initialized++++++++++++++++++++++++++++++')
-    #         nn.init.constant_(m.weight, 0)
-    #         nn.init.constant_(m.bias, 0)
-    # for n, m in self.named_modules():
-    #     if 'my_fc2' in n:
-    #         # print('My fc is initialized++++++++++++++++++++++++++++++')
-    #         nn.init.constant_(m.weight, 0)
-    #         nn.init.constant_(m.bias, 0)
     def forward(
         self,
         x: torch.Tensor,
@@ -271,8 +437,257 @@ class ResidualAttentionBlock(nn.Module):
             x = self.Adapter(x)
             x = x + self.drop_path(self.mlp(self.ln_2(x)))
             return x
+        
+class ResidualAttentionBlock_IVLP(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        n_head: int,
+        attn_mask: torch.Tensor = None,
+        add_prompt=False,
+        text_layer=False,
+        i=0,
+        design_details=None,
+    ):
+        super().__init__()
+
+        self.attn = nn.MultiheadAttention(d_model, n_head)
+        self.ln_1 = LayerNorm(d_model)
+        self.mlp = nn.Sequential(
+            OrderedDict(
+                [
+                    ("c_fc", nn.Linear(d_model, d_model * 4)),
+                    ("gelu", QuickGELU()),
+                    ("c_proj", nn.Linear(d_model * 4, d_model)),
+                ]
+            )
+        )
+        self.ln_2 = LayerNorm(d_model)
+        # Only add learnable tokens if flag is set True
+        # For the first iteration i, we should not add the learnable parameters
+        # as it is already been taken care of in the very start, for both text
+        # and the visual branch
+        self.text_layer = text_layer
+        self.attn_mask = attn_mask
+        if i != 0:
+            self.add_prompt = add_prompt
+            if self.add_prompt:
+                if self.text_layer:
+                    self.n_ctx_text = design_details["language_ctx"]  # hyperparameter
+                    ctx_vectors = torch.empty(self.n_ctx_text, d_model)
+                else:
+                    self.n_ctx_visual = design_details["vision_ctx"]  # hyperparameter
+                    ctx_vectors = torch.empty(self.n_ctx_visual, d_model)
+                # Code snippet for per layer visual prompts
+                nn.init.normal_(ctx_vectors, std=0.02)
+                self.VPT_shallow = nn.Parameter(ctx_vectors)
+        else:
+            self.add_prompt = False
+
+    def attention(self, x: torch.Tensor):
+        self.attn_mask = (
+            self.attn_mask.to(dtype=x.dtype, device=x.device)
+            if self.attn_mask is not None
+            else None
+        )
+        return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
+
+    def forward(self, x: torch.Tensor):
+        # Will need to append the learnable tokens for this layer here
+        # Check if flag was set for this layer or not
+        if self.add_prompt:
+            # Also see if this is textual transformer layer or not
+            if not self.text_layer:
+                # Remove the outputs produced by learnable tokens of previous layer
+                prefix = x[0 : x.shape[0] - self.n_ctx_visual, :, :]
+                # Create/configure learnable tokens of this layer
+                visual_context = (
+                    self.VPT_shallow.expand(x.shape[1], -1, -1).permute(1, 0, 2).half()
+                )
+                # Add the learnable tokens of this layer with the input, by replacing the previous
+                # layer learnable tokens
+                x = torch.cat([prefix, visual_context], dim=0)
+            else:
+                # Appending the learnable tokens in different way
+                # x -> [77, NCLS, DIM]
+                # First remove the learnable tokens from previous layer
+                prefix = x[:1, :, :]
+                suffix = x[1 + self.n_ctx_text :, :, :]
+                # Create/configure learnable tokens of this layer
+                textual_context = (
+                    self.VPT_shallow.expand(x.shape[1], -1, -1).permute(1, 0, 2).half()
+                )
+                # Add the learnable tokens of this layer with the input, replaced by previous
+                # layer learnable tokens
+                x = torch.cat([prefix, textual_context, suffix], dim=0)
+
+        x = x + self.attention(self.ln_1(x))
+        x = x + self.mlp(self.ln_2(x))
+        return x
 
 
+class ResidualAttentionBlock_MaPLe(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        n_head: int,
+        attn_mask: torch.Tensor = None,
+        design_details=None,
+        text_layer=False,
+        i=0,
+    ):
+        super().__init__()
+
+        self.attn = nn.MultiheadAttention(d_model, n_head)
+        self.ln_1 = LayerNorm(d_model)
+        self.mlp = nn.Sequential(
+            OrderedDict(
+                [
+                    ("c_fc", nn.Linear(d_model, d_model * 4)),
+                    ("gelu", QuickGELU()),
+                    ("c_proj", nn.Linear(d_model * 4, d_model)),
+                ]
+            )
+        )
+        self.ln_2 = LayerNorm(d_model)
+        # For the first iteration i, we do not need to add the learnable parameters here
+        # as it will be added in the beginning, for both text and the vision branch
+        self.text_layer = text_layer
+        self.attn_mask = attn_mask
+        # This must be consistent with the config file prompt
+        self.compound_prompt_nctx = design_details["maple_length"]
+        if i == 0:
+            self.first_layer = True
+        else:
+            self.first_layer = False
+
+    def attention(self, x: torch.Tensor):
+        self.attn_mask = (
+            self.attn_mask.to(dtype=x.dtype, device=x.device)
+            if self.attn_mask is not None
+            else None
+        )
+        return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
+
+    def forward(self, inputs):
+        # For the first layer, we do not need to add any duplicate, as it is already added
+        # as the shallow version
+        x = inputs[0]
+        compound_prompts_deeper = inputs[1]
+        counter = inputs[2]
+        if not self.first_layer:
+            if len(compound_prompts_deeper) > 0:
+                # This means that deeper compound prompts are turned on
+                # Here it behaves differently for text and visual side
+                # Forward function is same for both
+
+                if not self.text_layer:
+                    # First check if the ith layer needs compound prompts or not
+                    if not (counter > len(compound_prompts_deeper) - 1):
+                        # Remove the outputs produced by learnable tokens of previous layer
+                        prefix = x[0 : x.shape[0] - self.compound_prompt_nctx, :, :]
+                        # Create/configure learnable tokens of this layer
+                        visual_context = compound_prompts_deeper[
+                            counter
+                        ]  # extract the correct index
+                        visual_context = (
+                            visual_context.expand(x.shape[1], -1, -1)
+                            .permute(1, 0, 2)
+                            .half()
+                        )
+                        # Add the learnable tokens of this layer with the input, by replacing previous
+                        # layer learnable tokens
+                        x = torch.cat([prefix, visual_context], dim=0)
+
+                        # Once done, update the counter, so that the next time, it does not use same learnable tokens
+                        counter += 1
+                else:
+                    # First check if the ith layer needs compound prompts or not
+                    if not (counter > len(compound_prompts_deeper) - 1):
+                        # Appending the learnable tokens in different way
+                        # x -> [77, NCLS, DIM]
+                        # First remove the learnable tokens from previous layer
+                        prefix = x[:1, :, :]
+                        suffix = x[1 + self.compound_prompt_nctx :, :, :]
+                        # Create/configure learnable tokens of this layer
+                        textual_context = compound_prompts_deeper[counter]
+                        textual_context = (
+                            textual_context.expand(x.shape[1], -1, -1)
+                            .permute(1, 0, 2)
+                            .half()
+                        )
+                        # Add the learnable tokens of this layer with the input, replaced by previous
+                        # layer learnable tokens
+                        x = torch.cat([prefix, textual_context, suffix], dim=0)
+                        # Once done, update the counter, so that the next time, it does not use same learnable tokens
+                        counter += 1
+        x = x + self.attention(self.ln_1(x))
+        x = x + self.mlp(self.ln_2(x))
+        return [
+            x,
+            compound_prompts_deeper,
+            counter,
+        ]  # return again as a list, so that nn.seq can work
+
+class Transformer_prompt(nn.Module):
+    def __init__(
+        self,
+        width: int,
+        layers: int,
+        heads: int,
+        attn_mask: torch.Tensor = None,
+        prompts_needed=0,
+        text_layer=False,
+        design_details=None,
+    ):
+        super().__init__()
+        self.width = width
+        self.layers = layers
+        # Implements respective encoder blocks for a given design choice
+        current_trainer = design_details["trainer"]
+        if current_trainer == "IVLP" or current_trainer == "VPT":
+            self.resblocks = nn.Sequential(
+                *[
+                    (
+                        ResidualAttentionBlock_IVLP(
+                            width, heads, attn_mask, True, text_layer, i, design_details
+                        )
+                        if prompts_needed > i
+                        else ResidualAttentionBlock_IVLP(
+                            width,
+                            heads,
+                            attn_mask,
+                            False,
+                            text_layer,
+                            i,
+                            design_details,
+                        )
+                    )
+                    for i in range(layers)
+                ]
+            )
+        elif current_trainer == "MaPLe":
+            self.resblocks = nn.Sequential(
+                *[
+                    ResidualAttentionBlock_MaPLe(
+                        width, heads, attn_mask, design_details, text_layer, i
+                    )
+                    for i in range(layers)
+                ]
+            )
+        else:
+            # Corresponds to default CoOp or CoCoOp
+            assert current_trainer == "CoOp" or current_trainer == "CoCoOp"
+            self.resblocks = nn.Sequential(
+                *[
+                    ResidualAttentionBlock(width, heads, attn_mask)
+                    for _ in range(layers)
+                ]
+            )
+
+    def forward(self, x: torch.Tensor):
+        return self.resblocks(x)
+    
 class Transformer(nn.Module):
     def __init__(
         self,
@@ -420,7 +835,177 @@ class Transformer(nn.Module):
         if self.model_for == "text":
             return self.resblocks(x)
 
+class VisionTransformer(nn.Module):
+    def __init__(
+        self,
+        input_resolution: int,
+        patch_size: int,
+        width: int,
+        layers: int,
+        heads: int,
+        output_dim: int,
+        design_details,
+    ):
+        super().__init__()
+        self.input_resolution = input_resolution
+        self.output_dim = output_dim
+        self.conv1 = nn.Conv2d(
+            in_channels=3,
+            out_channels=width,
+            kernel_size=patch_size,
+            stride=patch_size,
+            bias=False,
+        )
+        if design_details["vision_depth"] == 0:
+            self.VPT_shallow = False
+        else:
+            self.VPT_shallow = True
+        if self.VPT_shallow:
+            # Add visual prompt tokens here
+            n_ctx = design_details["vision_ctx"]  # hyperparameter
+            ctx_vectors = torch.empty(n_ctx, width)
+            nn.init.normal_(ctx_vectors, std=0.02)
+            self.VPT = nn.Parameter(ctx_vectors)
+            # self.VPT.half()
+        scale = width**-0.5
+        self.class_embedding = nn.Parameter(scale * torch.randn(width))
+        self.positional_embedding = nn.Parameter(
+            scale * torch.randn((input_resolution // patch_size) ** 2 + 1, width)
+        )
+        self.ln_pre = LayerNorm(width)
+        # hyper-parameter if need to add prompt embeddings inside to the input
+        # of transformer block or not:
+        self.prompt_till_layer_visual = design_details["vision_depth"]
+        self.transformer = Transformer(
+            width,
+            layers,
+            heads,
+            prompts_needed=self.prompt_till_layer_visual,
+            design_details=design_details,
+        )
 
+        self.ln_post = LayerNorm(width)
+        self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
+
+    def forward(self, x: torch.Tensor):
+        x = self.conv1(x)  # shape = [*, width, grid, grid]
+        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
+        x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+        x = torch.cat(
+            [
+                self.class_embedding.to(x.dtype)
+                + torch.zeros(
+                    x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device
+                ),
+                x,
+            ],
+            dim=1,
+        )  # shape = [*, grid ** 2 + 1, width]
+        x = x + self.positional_embedding.to(x.dtype)
+
+        # After positional embeddings, we will attach prompts with the model, remember only those
+        # are trainable parameters here in whole image encoder.
+        if self.VPT_shallow:
+            visual_ctx = self.VPT.expand(x.shape[0], -1, -1).half()
+            x = torch.cat([x, visual_ctx], dim=1)
+        else:
+            assert self.prompt_till_layer_visual == 0
+
+        # Normal code as before
+        x = self.ln_pre(x)
+
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = self.transformer(x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+
+        x = self.ln_post(x[:, 0, :])
+
+        if self.proj is not None:
+            x = x @ self.proj
+
+        return x
+
+
+class VisionTransformer_MaPLe(nn.Module):
+    def __init__(
+        self,
+        input_resolution: int,
+        patch_size: int,
+        width: int,
+        layers: int,
+        heads: int,
+        output_dim: int,
+        design_details,
+    ):
+        super().__init__()
+        self.input_resolution = input_resolution
+        self.output_dim = output_dim
+        self.conv1 = nn.Conv2d(
+            in_channels=3,
+            out_channels=width,
+            kernel_size=patch_size,
+            stride=patch_size,
+            bias=False,
+        )
+        self.VPT_shallow = True
+        scale = width**-0.5
+        self.class_embedding = nn.Parameter(scale * torch.randn(width))
+        self.positional_embedding = nn.Parameter(
+            scale * torch.randn((input_resolution // patch_size) ** 2 + 1, width)
+        )
+        self.ln_pre = LayerNorm(width)
+        # hyper-parameter if need to add prompt embeddings inside to the input
+        # of transformer block or not:
+        self.prompt_till_layer_visual = 0
+        self.transformer = Transformer(
+            width, layers, heads, design_details=design_details
+        )
+
+        self.ln_post = LayerNorm(width)
+        self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
+
+    def forward(self, x: torch.Tensor, shared_ctx, compound_deeper_prompts):
+        x = self.conv1(x)  # shape = [*, width, grid, grid]
+        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
+        x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+        x = torch.cat(
+            [
+                self.class_embedding.to(x.dtype)
+                + torch.zeros(
+                    x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device
+                ),
+                x,
+            ],
+            dim=1,
+        )  # shape = [*, grid ** 2 + 1, width]
+        x = x + self.positional_embedding.to(x.dtype)
+
+        # After positional embeddings, we will attach prompts with the model, remember only those
+        # are trainable parameters here in whole image encoder.
+        if self.VPT_shallow:
+            visual_ctx = shared_ctx.expand(x.shape[0], -1, -1).half()
+            x = torch.cat([x, visual_ctx], dim=1)
+        else:
+            assert self.prompt_till_layer_visual == 0
+
+        # Normal code as before
+        x = self.ln_pre(x)
+
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        # Again combine the inputs, so nn.sequential can work
+        outputs = self.transformer(
+            [x, compound_deeper_prompts, 0]
+        )  # third argument is counter
+        x = outputs[0]
+        x = x.permute(1, 0, 2)  # LND -> NLD
+
+        x = self.ln_post(x[:, 0, :])
+
+        if self.proj is not None:
+            x = x @ self.proj
+
+        return x
+        
 class VisualTransformer(nn.Module):
     def __init__(
         self,
@@ -554,7 +1139,7 @@ class VisualTransformer(nn.Module):
         return x
 
 
-class CLIP(nn.Module):
+class CLIP_EZCLIP(nn.Module):
     def __init__(
         self,
         embed_dim: int,

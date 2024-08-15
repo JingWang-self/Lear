@@ -1,5 +1,5 @@
 # pretrain: '/root/autodl-tmp/model_best_zero_shot_ViT-16.pt'
-pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_CoOp/ViT-B/16/SeAct/SeAct_train_vit_16_8_frame/model_best.pt
+pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_T_Adapter_MaPLe/ViT-B/16/SeAct/SeAct_train_vit_16_8_frame/model_best.pt
 # pretrain: /root/wj/EZ_CLIP_events/DVS128Gesture/clip_DVS128Gesture/ViT-B/16/DVS128Gesture/DVS128Gesture_train_vit_16_T_adaptor_8_frame/model_best.pt
 seed: 1024
 use_motion_loss: True
@@ -34,11 +34,12 @@ data:
         M: 0  #9
 network:
     arch: ViT-B/16 #ViT-B/32 ViT-B/16  ViT-L/14
+    arch_path: 
     init: True
     tsm: False
     drop_out: 0.1
     emb_dropout: 0.0 
-    type: CLIP_T_Adapter_CoOp # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts, CLIP_T_Adapter
+    type: CLIP_T_Adapter_MaPLe # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts, CLIP_T_Adapter
     sim_header: "Transf"  #Transf   meanP  LSTM Conv_1D Transf_cls
     joint: False
     describe:

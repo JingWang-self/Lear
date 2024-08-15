@@ -277,7 +277,13 @@ def main():
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # If using GPU then use mixed precision training.
-
+    #! Added######################################
+    design_details = {"trainer": 'CoOp',
+                    "vision_depth": 0,
+                    "language_depth": 0, "vision_ctx": 0,
+                    "language_ctx": 0}
+    ##############################################
+    
     model, clip_state_dict = clip.load(
         config.network.arch,
         config,
@@ -289,6 +295,7 @@ def main():
         emb_dropout=config.network.emb_dropout,
         pretrain=config.network.init,
         joint=config.network.joint,
+        design_details=design_details
     )  # Must set jit=False for training  ViT-B/32
     transform_train = get_augmentation(True, config)
     transform_val = get_augmentation(False, config)

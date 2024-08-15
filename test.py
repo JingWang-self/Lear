@@ -4,7 +4,7 @@ import torch.nn as nn
 from datasets import Action_DATASETS
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
+import copy
 # import wandb
 import argparse
 import shutil
@@ -22,7 +22,185 @@ from modules.Visual_Prompt import visual_prompt
 from utils.Augmentation import get_augmentation
 import torch
 from utils.Text_Prompt import *
+import torch.nn.functional as F
 
+import clip 
+from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
+
+_tokenizer = _Tokenizer()
+#!New Added#####################################################################
+
+class TextEncoder(nn.Module):
+    def __init__(self, clip_model):
+        super().__init__()
+        self.transformer = clip_model.transformer
+        self.positional_embedding = clip_model.positional_embedding
+        self.ln_final = clip_model.ln_final
+        self.text_projection = clip_model.text_projection
+        self.dtype = clip_model.dtype
+
+    def forward(self, prompts, tokenized_prompts, compound_prompts_deeper_text):
+        x = prompts + self.positional_embedding.type(self.dtype)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        # Pass as the list, as nn.sequential cannot process multiple arguments in the forward pass
+        combined = [x, compound_prompts_deeper_text, 0]  # third argument is the counter which denotes depth of prompt
+        outputs = self.transformer(combined)
+        x = outputs[0]  # extract the x back from here
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = self.ln_final(x).type(self.dtype)
+
+        # x.shape = [batch_size, n_ctx, transformer.width]
+        # take features from the eot embedding (eot_token is the highest number in each sequence)
+        x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
+
+        return x
+    
+def _get_clones(module, N):
+    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
+    
+class MultiModalPromptLearner(nn.Module):
+    def __init__(self, cfg, classnames, clip_model):
+        super().__init__()
+        n_cls = len(classnames)
+        n_ctx = cfg.MAPLE.N_CTX
+        ctx_init = cfg.MAPLE.CTX_INIT
+        dtype = clip_model.dtype
+        ctx_dim = clip_model.ln_final.weight.shape[0]
+        clip_imsize = clip_model.visual.input_resolution
+        cfg_imsize = cfg.data.input_size
+        # Default is 1, which is compound shallow prompting
+        assert cfg.MAPLE.PROMPT_DEPTH >= 1, "For MaPLe, PROMPT_DEPTH should be >= 1"
+        self.compound_prompts_depth = cfg.MAPLE.PROMPT_DEPTH  # max=12, but will create 11 such shared prompts
+        assert cfg_imsize == clip_imsize, f"cfg_imsize ({cfg_imsize}) must equal to clip_imsize ({clip_imsize})"
+
+        if ctx_init and (n_ctx) <= 4:
+            # use given words to initialize context vectors
+            ctx_init = ctx_init.replace("_", " ")
+            n_ctx = n_ctx
+            prompt = clip.tokenize(ctx_init)
+            with torch.no_grad():
+                embedding = clip_model.token_embedding(prompt).type(dtype)
+            ctx_vectors = embedding[0, 1: 1 + n_ctx, :]
+            prompt_prefix = ctx_init
+        else:
+            # random initialization
+            ctx_vectors = torch.empty(n_ctx, ctx_dim, dtype=dtype)
+            nn.init.normal_(ctx_vectors, std=0.02)
+            prompt_prefix = " ".join(["X"] * n_ctx)
+        print('MaPLe design: Multi-modal Prompt Learning')
+        print(f'Initial context: "{prompt_prefix}"')
+        print(f"Number of MaPLe context words (tokens): {n_ctx}")
+        # These below, related to the shallow prompts
+        # Linear layer so that the tokens will project to 512 and will be initialized from 768
+        self.proj = nn.Linear(ctx_dim, 768)
+        self.proj.half()
+        self.ctx = nn.Parameter(ctx_vectors)
+        # These below parameters related to the shared prompts
+        # Define the compound prompts for the deeper layers
+
+        # Minimum can be 1, which defaults to shallow MaPLe
+        # compound prompts
+        self.compound_prompts_text = nn.ParameterList([nn.Parameter(torch.empty(n_ctx, 512))
+                                                      for _ in range(self.compound_prompts_depth - 1)])
+        for single_para in self.compound_prompts_text:
+            nn.init.normal_(single_para, std=0.02)
+        # Also make corresponding projection layers, for each prompt
+        single_layer = nn.Linear(ctx_dim, 768)
+        self.compound_prompt_projections = _get_clones(single_layer, self.compound_prompts_depth - 1)
+
+        classnames = [name.replace("_", " ") for name in classnames]
+        name_lens = [len(_tokenizer.encode(name)) for name in classnames]
+        prompts = [prompt_prefix + " " + name + "." for name in classnames]
+
+        tokenized_prompts = torch.cat([clip.tokenize(p) for p in prompts])  # (n_cls, n_tkn)
+        with torch.no_grad():
+            embedding = clip_model.token_embedding(tokenized_prompts).type(dtype)
+
+        # These token vectors will be saved when in save_model(),
+        # but they should be ignored in load_model() as we want to use
+        # those computed using the current class names
+        self.register_buffer("token_prefix", embedding[:, :1, :])  # SOS
+        self.register_buffer("token_suffix", embedding[:, 1 + n_ctx:, :])  # CLS, EOS
+
+        self.n_cls = n_cls
+        self.n_ctx = n_ctx
+        self.tokenized_prompts = tokenized_prompts  # torch.Tensor
+        self.name_lens = name_lens
+
+    def construct_prompts(self, ctx, prefix, suffix, label=None):
+        # dim0 is either batch_size (during training) or n_cls (during testing)
+        # ctx: context tokens, with shape of (dim0, n_ctx, ctx_dim)
+        # prefix: the sos token, with shape of (n_cls, 1, ctx_dim)
+        # suffix: remaining tokens, with shape of (n_cls, *, ctx_dim)
+
+        if label is not None:
+            prefix = prefix[label]
+            suffix = suffix[label]
+
+        prompts = torch.cat(
+            [
+                prefix,  # (dim0, 1, dim)
+                ctx,  # (dim0, n_ctx, dim)
+                suffix,  # (dim0, *, dim)
+            ],
+            dim=1,
+        )
+
+        return prompts
+
+    def forward(self):
+        ctx = self.ctx
+
+        if ctx.dim() == 2:
+            ctx = ctx.unsqueeze(0).expand(self.n_cls, -1, -1)
+
+        prefix = self.token_prefix
+        suffix = self.token_suffix
+        prompts = self.construct_prompts(ctx, prefix, suffix)
+
+        # Before returning, need to transform
+        # prompts to 768 for the visual side
+        visual_deep_prompts = []
+        for index, layer in enumerate(self.compound_prompt_projections):
+            visual_deep_prompts.append(layer(self.compound_prompts_text[index]))
+        # Now the other way around
+        # We will project the textual prompts from 512 to 768
+        return prompts, self.proj(self.ctx), self.compound_prompts_text, visual_deep_prompts   # pass here original, as for visual 768 is required
+
+
+
+class CustomCLIP(nn.Module):
+    def __init__(self, cfg, classnames, clip_model):
+        super().__init__()
+        self.prompt_learner = MultiModalPromptLearner(cfg, classnames, clip_model)
+        self.tokenized_prompts = self.prompt_learner.tokenized_prompts
+        self.image_encoder = clip_model.visual
+        self.text_encoder = TextEncoder(clip_model)
+        self.logit_scale = clip_model.logit_scale
+        self.dtype = clip_model.dtype
+
+    def forward(self, image_features, text_features, label=None):
+        logit_scale = self.logit_scale.exp()
+
+
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        logits = logit_scale * image_features @ text_features.t()
+
+        if self.prompt_learner.training:
+            return F.cross_entropy(logits, label)
+
+        return logits
+    
+    def encode(self, image):
+        tokenized_prompts = self.tokenized_prompts
+
+        prompts, shared_ctx, deep_compound_prompts_text, deep_compound_prompts_vision = self.prompt_learner()
+        text_features = self.text_encoder(prompts, tokenized_prompts, deep_compound_prompts_text)
+        image_features = self.image_encoder(image.type(self.dtype), shared_ctx, deep_compound_prompts_vision)
+        return  image_features, text_features
+    
+#!##############################################################################
 
 class TextCLIP(nn.Module):
     def __init__(self, model):
@@ -155,16 +333,48 @@ def plot_image_classification(ax, image, predictions, true_label, labels2name, t
             f"{labels2name[class_id]}: {prob:.2f}%",
             color="blue",
         )
+#! Added#######################
+def compute_accuracy(output, target, topk=(1, )):
+    """Computes the accuracy over the k top predictions for
+    the specified values of k.
+
+    Args:
+        output (torch.Tensor): prediction matrix with shape (batch_size, num_classes).
+        target (torch.LongTensor): ground truth labels with shape (batch_size).
+        topk (tuple, optional): accuracy at top-k will be computed. For example,
+            topk=(1, 5) means accuracy at top-1 and top-5 will be computed.
+
+    Returns:
+        list: accuracy at top-k.
+    """
+    maxk = max(topk)
+    batch_size = target.size(0)
+
+    if isinstance(output, (tuple, list)):
+        output = output[0]
+
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        acc = correct_k.mul_(100.0 / batch_size)
+        res.append(acc)
+
+    return res
+#!#############################
 
 
 def validate(
     epoch,
     val_loader,
-    classes,
+    # classes, #! to remove
     device,
     model,
     config,
-    num_text_aug,
+    # num_text_aug, #! to remove
     working_dir,
     dataset_name,
     labels2name=None,
@@ -182,8 +392,8 @@ def validate(
     image_batch = []
     print(f"Test saving in: {working_dir}")
     with torch.no_grad():
-        text_inputs = classes.to(device)
-        text_features = model.encode_text(text_inputs)
+        # text_inputs = classes.to(device)
+        # text_features = model.encode_text(text_inputs)
         for iii, (prompt_image, class_id) in enumerate(tqdm(val_loader)):
             prompt_image = prompt_image.view(
                 (-1, config.data.num_segments, 3) + prompt_image.size()[-2:]
@@ -191,10 +401,12 @@ def validate(
             b, t, c, h, w = prompt_image.size()
             class_id = class_id.to(device)
             image_input = prompt_image.to(device).view(-1, c, h, w)
-            image_features = model.encode_image(image_input).view(b, t, -1)
+            image_features, text_features = model.module.encode(image_input)
+            image_features = image_features.view(b, t, -1)
             image_features = image_features.mean(dim=1, keepdim=False)
             image_features /= image_features.norm(dim=-1, keepdim=True)
-            text_features /= text_features.norm(dim=-1, keepdim=True)
+            similarity = model(image_features, text_features, class_id)
+            similarity = similarity.view(b, -1).softmax(dim=-1)
             class_for_plot = random.sample(range(230), 160)
             for id, feature in zip(class_id, image_features):
                 if dataset_name == "K600":
@@ -204,8 +416,32 @@ def validate(
                 else:
                     video_features.append(feature.unsqueeze(0))
                     labels.append(torch.tensor([id.item()]))
-            similarity = 100.0 * image_features @ text_features.T
-            similarity = similarity.view(b, num_text_aug, -1).softmax(dim=-1)
+            values_1, indices_1 = similarity.topk(1, dim=-1)
+            values_5, indices_5 = similarity.topk(5, dim=-1)
+            pred.append(indices_1.squeeze().tolist())
+            orignal.append(class_id.squeeze().tolist())
+            num += b
+            for i in range(b):
+                if indices_1[i] == class_id[i]:
+                    corr_1 += 1
+                    if class_id[i].item() not in list(cls_dic.keys()):
+                        cls_dic.update({class_id[i].item(): [1]})
+                    else:
+                        cls_dic[class_id[i].item()].append(1)
+                else:
+                    if class_id[i].item() not in list(cls_dic.keys()):
+                        cls_dic.update({class_id[i].item(): [0]})
+                    else:
+                        cls_dic[class_id[i].item()].append(0)
+
+                if class_id[i] in indices_5[i]:
+                    corr_5 += 1
+            
+                # Save image for visualization
+                if len(image_batch) < 6:
+                    image_batch.append((image_input[i], class_id[i], similarity[i]))
+            
+            '''
             similarity = similarity.mean(dim=1, keepdim=False)
             values_1, indices_1 = similarity.topk(1, dim=-1)
             values_5, indices_5 = similarity.topk(5, dim=-1)
@@ -227,10 +463,12 @@ def validate(
 
                 if class_id[i] in indices_5[i]:
                     corr_5 += 1
-
+            
                 # Save image for visualization
                 if len(image_batch) < 6:
                     image_batch.append((image_input[i], class_id[i], similarity[i]))
+            '''
+            
 
     top1 = float(corr_1) / num * 100
     top5 = float(corr_5) / num * 100
@@ -250,6 +488,7 @@ def validate(
         )
         feature_plot(video_features, labels, working_dir, epoch, dataset_name)
 
+        '''
         # Plot the images and their predictions
         fig, axes = plt.subplots(2, 3, figsize=(15, 10))
         axes = axes.flatten()
@@ -272,6 +511,7 @@ def validate(
             dpi=300,
         )
         plt.close()
+        '''
 
     print(
         "Epoch: [{}/{}]: Top1: {}, Top5: {}".format(
@@ -281,7 +521,87 @@ def validate(
     return top1
 
 
+def validate_1(
+    epoch,
+    val_loader,
+    classes,
+    device,
+    model,
+    config,
+    num_text_aug,
+    working_dir,
+    dataset_name,
+    is_Train=False,
+):
+    model.eval()
+    num = 0
+    corr_1 = 0
+    corr_5 = 0
+    cls_dic = {}
+    video_features = []
+    labels = []
+    pred = []
+    orignal = []
+    with torch.no_grad():
+        text_inputs = classes.to(device)
+        text_features = model.module.encode_text(text_inputs)
+        for iii, (prompt_image, class_id) in enumerate(tqdm(val_loader)):
+            prompt_image = prompt_image.view(
+                (-1, config.data.num_segments, 3) + prompt_image.size()[-2:]
+            )
+            b, t, c, h, w = prompt_image.size()
+            class_id = class_id.to(device)
+            image_input = prompt_image.to(device).view(-1, c, h, w)
+            image_features = model.module.encode_image(image_input).view(b, t, -1)
+            image_features = image_features.mean(dim=1, keepdim=False)
+            image_features /= image_features.norm(dim=-1, keepdim=True)
+            text_features /= text_features.norm(dim=-1, keepdim=True)
+            class_for_plot = random.sample(range(230), 160)
+            for id, feature in zip(class_id, image_features):
+                if dataset_name == "K600":
+                    if id.item() in class_for_plot:
+                        video_features.append(feature.unsqueeze(0))
+                        labels.append(torch.tensor([id.item()]))
+                else:
+                    video_features.append(feature.unsqueeze(0))
+                    labels.append(torch.tensor([id.item()]))
+            similarity = 100.0 * image_features @ text_features.T
+            similarity = similarity.view(b, num_text_aug, -1).softmax(dim=-1)
+            similarity = similarity.mean(dim=1, keepdim=False)
+            values_1, indices_1 = similarity.topk(1, dim=-1)
+            values_5, indices_5 = similarity.topk(5, dim=-1)
+            # print(values_1, indices_1)
+            pred.append(indices_1.squeeze().tolist())
+            orignal.append(class_id.squeeze().tolist())
+            num += b
+            for i in range(b):
+                if indices_1[i] == class_id[i]:
+                    corr_1 += 1
+                    if class_id[i].item() not in list(cls_dic.keys()):
+                        cls_dic.update({class_id[i].item(): [1]})
+                    else:
+                        cls_dic[class_id[i].item()].append(1)
+                else:
+                    if class_id[i].item() not in list(cls_dic.keys()):
+                        cls_dic.update({class_id[i].item(): [0]})
+                    else:
+                        cls_dic[class_id[i].item()].append(0)
 
+                if class_id[i] in indices_5[i]:
+                    corr_5 += 1
+    top1 = float(corr_1) / num * 100
+    top5 = float(corr_5) / num * 100
+    pred = [item for sublist in pred for item in sublist]
+    orignal = [item for sublist in orignal for item in sublist]
+    print(
+        "Epoch: [{}/{}]: Top1: {}, Top5: {}".format(
+            epoch, config.solver.epochs, top1, top5
+        )
+    )
+    # Class_analysis(cls_dic,pred,orignal, video_features,labels, working_dir,epoch,dataset_name)
+    # feature_plot(video_features,labels,working_dir,epoch,dataset_name)
+
+    return top1
 
 
 def main():
@@ -322,27 +642,36 @@ def main():
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # If using GPU then use mixed precision training.
 
+    design_details = {"trainer": 'MaPLe',
+                    "vision_depth": 0,
+                    "language_depth": 0, "vision_ctx": 0,
+                    "language_ctx": 0,
+                    "maple_length": config.MAPLE.N_CTX}
     model, clip_state_dict = clip.load(
         config.network.arch,
         config,
-        device=device,
+        device=torch.device('cpu'),
         jit=False,
         tsm=config.network.tsm,
         T=config.data.num_segments,
         dropout=config.network.drop_out,
         emb_dropout=config.network.emb_dropout,
+        pretrain=config.network.init,
+        joint=config.network.joint,
+        design_details=design_details
     )  # Must set jit=False for training  ViT-B/32
 
     transform_val = get_augmentation(False, config)
-
+    '''
     model_text = TextCLIP(model)
     model_image = ImageCLIP(model)
     model_text = torch.nn.DataParallel(model_text).cuda()
     model_image = torch.nn.DataParallel(model_image).cuda()
-
     for name, p in model.named_parameters():
         if "prompt" not in name and "Adapter" not in name:
             p.requires_grad = False
+    '''
+
 
     val_data = Action_DATASETS(
         config.data.val_list,
@@ -360,7 +689,14 @@ def main():
         pin_memory=True,
         drop_last=True,
     )
-
+    classnames = [name for id, name in val_data.classes]
+    customCLIP = CustomCLIP(config, classnames, model).to(device)
+    print("Turning off gradients in both the image and the text encoder")
+    for name, param in customCLIP.named_parameters():
+        if "prompt_learner" not in name and "prompt" not in name and "Adapter" not in name:
+            param.requires_grad_(False)
+    customCLIP = torch.nn.DataParallel(customCLIP, device_ids=[0]).cuda()
+    '''
     if device == "cpu":
         model_text.float()
         model_image.float()
@@ -369,6 +705,7 @@ def main():
             model_text
         )  # Actually this line is unnecessary since clip by default already on float16
         clip.model.convert_weights(model_image)
+    '''
 
     start_epoch = config.solver.start_epoch
 
@@ -376,14 +713,15 @@ def main():
         if os.path.isfile(config.pretrain):
             print(("=> loading checkpoint '{}'".format(config.pretrain)))
             checkpoint = torch.load(config.pretrain)
-            model.load_state_dict(checkpoint["model_state_dict"])
+            customCLIP.load_state_dict(checkpoint["model_state_dict"])
             del checkpoint
         else:
             print(("=> no checkpoint found at '{}'".format(config.pretrain)))
-
+    '''
     classes, num_text_aug, text_dict = text_prompt(
         val_data, config.data.gpt_discription, config.data.use_llm
     )
+    '''
 
     best_prec1 = 0.0
     # 'UCF_base' is dataset name
@@ -399,11 +737,11 @@ def main():
     prec1 = validate(
         start_epoch,
         val_loader,
-        classes,
+        # classes,
         device,
-        model,
+        customCLIP,
         config,
-        num_text_aug,
+        # num_text_aug,
         working_dir,
         config["data"]["dataset"],
         labels2name,
