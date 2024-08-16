@@ -1,4 +1,4 @@
-T_Adapter: true
+T_Adapter: false
 data:
   batch_size: 16
   dataset: PAF
@@ -31,13 +31,13 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: CLIP_T_Adapter # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
-pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_T_Adapter/ViT-B/16/PAF/PAF_train_vit_16_8_frame/model_best.pt
+  type: CLIP_MaPLe # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
+pretrain: 
 prompt:
   DEEP: true
   DROPOUT: 0.1
   INITIATION: random
-  use: false
+  use: true
 resume: null
 seed: 1024
 solver:
@@ -60,3 +60,9 @@ solver:
 training_name: PAF_train_vit_16_8_frame
 use_motion_loss: true
 weight_save_dir: /root/autodl-tmp/EZ_CLIP_events
+MAPLE:
+    N_CTX: 2
+    CTX_INIT: "a photo of a human action for"
+    PREC: fp16
+    PROMPT_DEPTH: 9
+    SUBSAMPLE_CLASSES: "all"

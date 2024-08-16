@@ -719,10 +719,10 @@ class ResidualAttentionBlock_MaPLe(nn.Module):
                 )
                 x = x + self.drop_path(xt)
 
-        x = x + self.drop_path(self.attention(self.ln_1(x)))
-        x = x[:l, :, :]
-        x = self.Adapter(x)
-        x = x + self.drop_path(self.mlp(self.ln_2(x)))
+            x = x + self.drop_path(self.attention(self.ln_1(x)))
+            x = x[:l, :, :]
+            x = self.Adapter(x)
+            x = x + self.drop_path(self.mlp(self.ln_2(x)))
 
         return [x, compound_prompts_deeper, counter]
 
@@ -755,6 +755,7 @@ class Transformer(nn.Module):
         self.no_frame = no_frame
         self.model_for = model_for
         self.config = config
+        self.design_details = design_details
 
         current_trainer = design_details["trainer"]
 
@@ -834,6 +835,11 @@ class Transformer(nn.Module):
             )
 
     def forward(self, x: torch.Tensor):
+        trainer = self.design_details["trainer"]
+        if trainer == 'MaPLe':
+            dtype = x[0].dtype
+        else:
+            dtype = x.dtype
         if self.model_for == "image":
             if self.config.prompt.use:
                 for i, block in enumerate(self.resblocks):
@@ -844,7 +850,7 @@ class Transformer(nn.Module):
                                 self.prompt_proj(
                                     self.T_prompt_embeddings[i : i + 1, :, :]
                                 )
-                            ).to(x.dtype),
+                            ).to(dtype),
                             layer_num=i,
                         )
                     else:
@@ -856,6 +862,11 @@ class Transformer(nn.Module):
             return self.resblocks(x)
 
     def forward_attention(self, x: torch.Tensor):
+        trainer = self.design_details["trainer"]
+        if trainer == 'MaPLe':
+            dtype = x[0].dtype
+        else:
+            dtype = x.dtype
         if self.model_for == "image":
             if self.config.prompt.use:
                 for i, block in enumerate(self.resblocks):
@@ -866,7 +877,7 @@ class Transformer(nn.Module):
                                 self.prompt_proj(
                                     self.T_prompt_embeddings[i : i + 1, :, :]
                                 )
-                            ).to(x.dtype),
+                            ).to(dtype),
                             layer_num=i,
                         )
                     elif self.config.prompt.DEEP:
@@ -877,7 +888,7 @@ class Transformer(nn.Module):
                                     self.prompt_proj(
                                         self.T_prompt_embeddings[i : i + 1, :, :]
                                     )
-                                ).to(x.dtype),
+                                ).to(dtype),
                                 layer_num=i,
                             )
                         else:
@@ -887,7 +898,7 @@ class Transformer(nn.Module):
                                     self.prompt_proj(
                                         self.T_prompt_embeddings[i : i + 1, :, :]
                                     )
-                                ).to(x.dtype),
+                                ).to(dtype),
                                 layer_num=i,
                                 return_attention=True,
                             )
@@ -898,7 +909,7 @@ class Transformer(nn.Module):
                                 self.prompt_proj(
                                     self.T_prompt_embeddings[i : i + 1, :, :]
                                 )
-                            ).to(x.dtype),
+                            ).to(dtype),
                         )
                 return x
             else:
@@ -1177,7 +1188,7 @@ class VisionTransformer_MaPLe(nn.Module):
             stride=patch_size,
             bias=False,
         )
-        self.VPT_shallow = design_details.get("vision_depth", 0) > 0
+        self.VPT_shallow = True
         scale = width**-0.5
         self.class_embedding = nn.Parameter(scale * torch.randn(width))
         self.positional_embedding = nn.Parameter(
@@ -1191,12 +1202,13 @@ class VisionTransformer_MaPLe(nn.Module):
         self.emb_dropout = emb_dropout
         self.joint = joint
         self.config = config
+        self.num_frame=no_frame
 
         if joint:
             print("=====using joint space-time====")
             self.time_embedding = nn.Parameter(scale * torch.randn(no_frame, width))
 
-        self.prompt_till_layer_visual = design_details.get("vision_depth", 0)
+        self.prompt_till_layer_visual = 0
         self.transformer = Transformer(
             config,
             width,
@@ -1231,12 +1243,10 @@ class VisionTransformer_MaPLe(nn.Module):
         x = x + self.positional_embedding.to(x.dtype)
 
         if self.VPT_shallow:
-            visual_ctx = (
-                shared_ctx
-                if shared_ctx is not None
-                else self.VPT.expand(x.shape[0], -1, -1).half()
-            )
+            visual_ctx = shared_ctx.expand(x.shape[0], -1, -1).half()
             x = torch.cat([x, visual_ctx], dim=1)
+        else:
+            assert self.prompt_till_layer_visual == 0
 
         if self.temporal_embedding is not None:
             n = x.shape[1]
@@ -1255,15 +1265,14 @@ class VisionTransformer_MaPLe(nn.Module):
 
         if self.emb_dropout > 0:
             x = self.dropout(x)
+            
         x = self.ln_pre(x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
         outputs = self.transformer(
             [x, compound_deeper_prompts, 0]
-            if compound_deeper_prompts is not None
-            else x
         )
-        x = outputs[0] if isinstance(outputs, list) else outputs
+        x = outputs[0]
         x = x.permute(1, 0, 2)  # LND -> NLD
 
         x = self.ln_post(x[:, 0, :])

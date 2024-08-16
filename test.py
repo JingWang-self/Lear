@@ -488,7 +488,7 @@ def validate(
         )
         feature_plot(video_features, labels, working_dir, epoch, dataset_name)
 
-        '''
+        
         # Plot the images and their predictions
         fig, axes = plt.subplots(2, 3, figsize=(15, 10))
         axes = axes.flatten()
@@ -511,7 +511,7 @@ def validate(
             dpi=300,
         )
         plt.close()
-        '''
+        
 
     print(
         "Epoch: [{}/{}]: Top1: {}, Top5: {}".format(

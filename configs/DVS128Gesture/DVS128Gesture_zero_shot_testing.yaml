@@ -1,4 +1,4 @@
-T_Adapter: true
+T_Adapter: false
 data:
   batch_size: 20
   dataset: DVS128Gesture
@@ -30,13 +30,13 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: CLIP_T_Adapter # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
-pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_T_Adapter/ViT-B/16/DVS128Gesture/DVS128Gesture_train_vit_16_8_frame/model_best.pt
+  type: CLIP_MaPLe_init_promot # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
+pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_MaPLe/ViT-B/16/DVS128Gesture/DVS128Gesture_train_vit_16_8_frame/model_best.pt
 prompt:
   DEEP: true
   DROPOUT: 0.1
   INITIATION: random
-  use: false
+  use: true
 seed: 1024
 solver:
   clip_gradient: 20
@@ -58,3 +58,9 @@ solver:
 training_name: DVS128Gesture_zero_shot_testing_vit_16_8_frame
 use_motion_loss: true
 weight_save_dir: /root/autodl-tmp/EZ_CLIP_events
+MAPLE:
+    N_CTX: 2
+    CTX_INIT: "a human action of "
+    PREC: fp16
+    PROMPT_DEPTH: 9
+    SUBSAMPLE_CLASSES: "all"

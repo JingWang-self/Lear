@@ -1,17 +1,17 @@
 # pretrain: '/root/autodl-tmp/model_best_zero_shot_ViT-16.pt'
-pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_T_Adapter_MaPLe/ViT-B/16/SeAct/SeAct_train_vit_16_8_frame/model_best.pt
+pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_MaPLe_init_promot/ViT-B/16/SeAct/SeAct_train_vit_16_8_frame/model_best.pt
 # pretrain: /root/wj/EZ_CLIP_events/DVS128Gesture/clip_DVS128Gesture/ViT-B/16/DVS128Gesture/DVS128Gesture_train_vit_16_T_adaptor_8_frame/model_best.pt
 seed: 1024
 use_motion_loss: True
 training_name:  SeAct_zero_shot_testing_vit_16_8_frame
 weight_save_dir: /root/autodl-tmp/EZ_CLIP_events
-T_Adapter: True
+T_Adapter: False
 prompt:
     use: False
     # num_of_token: 100
     # num_of_text_token: 50
     INITIATION: 'random' 
-    DEEP: True
+    DEEP: False
     DROPOUT: 0.1
 data:
     dataset: SeAct
@@ -39,7 +39,7 @@ network:
     tsm: False
     drop_out: 0.1
     emb_dropout: 0.0 
-    type: CLIP_T_Adapter_MaPLe # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts, CLIP_T_Adapter
+    type: CLIP_MaPLe # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts, CLIP_T_Adapter
     sim_header: "Transf"  #Transf   meanP  LSTM Conv_1D Transf_cls
     joint: False
     describe:
@@ -77,7 +77,7 @@ COCOOP:
     CLASS_TOKEN_POSITION: "end"
 MAPLE:
     N_CTX: 2
-    CTX_INIT: "a photo of a"
+    CTX_INIT: "a human action of "
     PREC: fp16
     PROMPT_DEPTH: 9
     SUBSAMPLE_CLASSES: "all"

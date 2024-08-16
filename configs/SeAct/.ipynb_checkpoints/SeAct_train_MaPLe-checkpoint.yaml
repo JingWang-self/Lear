@@ -6,11 +6,11 @@ use_motion_loss: True
 training_name: SeAct_train_vit_16_8_frame
 T_Adapter: False
 prompt:
-    use: True
+    use: False
     # num_of_token: 100 #197
     # num_of_text_token: 50   #77
     INITIATION: 'random' 
-    DEEP: True
+    DEEP: False
     DROPOUT: 0.1
 data:
     dataset: SeAct
@@ -40,13 +40,13 @@ network:
     tsm: False
     drop_out: 0.1
     emb_dropout: 0.0 
-    type: CLIP_T_Adapter_promptSRC # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts, CLIP_T_Adapter
+    type: CLIP_MaPLe_init_promot # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts, CLIP_T_Adapter
     sim_header: "Transf"  #Transf   meanP  LSTM Conv_1D Transf_cls
     joint: False
     describe:
 solver:
     type: cosine
-    epochs: 150
+    epochs: 200
     start_epoch: 0
     epoch_offset: 0
     optim: adamw
@@ -64,26 +64,9 @@ solver:
 logging:
     print_freq: 10
     eval_freq: 1
-
-PROMPTSRC:
-    N_CTX_VISION : 4
-    N_CTX_TEXT : 4
-    CTX_INIT : "a photo of a"
-    PREC : "fp16"
-    PROMPT_DEPTH_VISION : 9
-    PROMPT_DEPTH_TEXT : 9
-    TEXT_LOSS_WEIGHT : 25
-    IMAGE_LOSS_WEIGHT : 10
-    GPA_MEAN : 15
-    GPA_STD : 1
-IVLP:
-    N_CTX_VISION: 2
-    N_CTX_TEXT: 2
-    CTX_INIT: "a photo of a"
-    PREC: "fp16"
-    PROMPT_DEPTH_VISION: 9
-    PROMPT_DEPTH_TEXT: 9
-DATASET:
-    SUBSAMPLE_CLASSES : "all"
-TEST:
-    NO_TEST : False
+MAPLE:
+    N_CTX: 2
+    CTX_INIT: "a human action of "
+    PREC: fp16
+    PROMPT_DEPTH: 9
+    SUBSAMPLE_CLASSES: "all"
