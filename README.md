@@ -5,21 +5,22 @@ Support on SeAct|PAF|DVS128Gesture
 ## Training
 ```
 # Train
+python train.py --config configs/SeAct/SeAct_train.yaml
 python train.py --config configs/DVS128Gesture/DVS128Gesture_train.yaml
 python train.py --config configs/PAF/PAF_train.yaml
 
 ```
 ```
-# Let's try CoOp + EZ-CLIP
-python train_SoftTextPrompt_VisualPrompt.py --config /root/wj/EZ_CLIP/configs/SeAct/SeAct_train_CoOp.yaml
-
+```
 
 ## Testing
 ```
-# Test 
+# Test
+python test.py --config configs/SeAct/SeAct_zero_shot_testing.yaml
 python test.py --config configs/DVS128Gesture/DVS128Gesture_zero_shot_testing.yaml
 python test.py --config configs/PAF/PAF_zero_shot_testing.yaml
 
 ```
+
 ## Acknowledgments
 Code is based on [EZ-CLIP](https://github.com/Shahzadnit/EZ-CLIP) and [ExAct](https://github.com/jiazhou-garland/ExACT)
