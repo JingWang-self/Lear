@@ -1,6 +1,6 @@
 ## Data Preparation
 According to [ExACT/SeAct Dataset](https://github.com/jiazhou-garland/ExACT?tab=readme-ov-file#seact-dataset)
-Support on SeAct|PAF|DVS128Gesture
+Support on SeAct|PAF|DVS128Gesture Datasets
 
 ## Training
 ```
@@ -8,9 +8,6 @@ Support on SeAct|PAF|DVS128Gesture
 python train.py --config configs/SeAct/SeAct_train.yaml
 python train.py --config configs/DVS128Gesture/DVS128Gesture_train.yaml
 python train.py --config configs/PAF/PAF_train.yaml
-
-```
-```
 ```
 
 ## Testing
@@ -19,7 +16,6 @@ python train.py --config configs/PAF/PAF_train.yaml
 python test.py --config configs/SeAct/SeAct_zero_shot_testing.yaml
 python test.py --config configs/DVS128Gesture/DVS128Gesture_zero_shot_testing.yaml
 python test.py --config configs/PAF/PAF_zero_shot_testing.yaml
-
 ```
 
 ## Acknowledgments
