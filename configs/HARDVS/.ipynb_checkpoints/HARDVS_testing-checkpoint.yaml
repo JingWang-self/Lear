@@ -1,14 +1,14 @@
 T_Adapter: false
 data:
   batch_size: 20
-  dataset: SeAct
-  gpt_discription: GPT_discription/SeAct_gpt_Class_discription_new.csv
+  dataset: HARDVS
+  gpt_discription: GPT_discription/HARDVS_gpt_Class_discription_new.csv
   image_tmpl: img_{:05d}.jpg
   index_bias: 1
   input_size: 224
-  label_list: lists/seact_labels.csv
+  label_list: lists/HARDVS_labels.csv
   modality: RGB
-  num_classes: 58
+  num_classes: 300
   num_segments: 8
   randaug:
     M: 0
@@ -16,21 +16,19 @@ data:
   seg_length: 1
   split: 1
   use_llm: true
-  val_list: dataset_splits/SeAct/Zero-shot/val.txt
+  val_list: dataset_splits/HARDVS/Zero-shot/val.txt
   workers: 8
 logging:
   eval_freq: 1
   print_freq: 10
 mm_prompt:
-  CTX_INIT: a human action of
+  CTX_INIT: a photo of a human action for
   N_CTX: 2
   PREC: fp16
   PROMPT_DEPTH: 9
   SUBSAMPLE_CLASSES: all
-  use: true
 network:
   arch: ViT-B/16
-  arch_path: null
   describe: null
   drop_out: 0.1
   emb_dropout: 0.0
@@ -38,13 +36,13 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: zero_shot_based_HARDVS
-# pretrain: /root/autodl-tmp/SAMPLE/full_supervised/ViT-B/16/HARDVS/HARDVS_train_full_supervised/model_best.pt
-pretrain: /root/autodl-tmp/SAMPLE/full_supervised/ViT-B/16/PAF/PAF_train_full_supervised/model_best.pt
+  type: full_supervised
+pretrain: /root/autodl-tmp/SAMPLE/full_supervised/ViT-B/16/HARDVS/HARDVS_train_full_supervised/model_best.pt
 prompt:
   DEEP: true
   DROPOUT: 0.1
   INITIATION: random
+  deep: true
   use: true
 seed: 1024
 solver:
@@ -64,6 +62,6 @@ solver:
   start_epoch: 0
   type: cosine
   weight_decay: 0.2
-training_name: SeAct_zero_shot_testing
+training_name: HARDVS_testing_full_supervised
 use_motion_loss: true
 weight_save_dir: /root/autodl-tmp/SAMPLE

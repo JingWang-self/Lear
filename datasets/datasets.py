@@ -116,7 +116,9 @@ class Action_DATASETS(data.Dataset):
         self.video_list = [VideoRecord(x.strip().split(' ')) for x in open(self.list_file)]
 
     def _sample_indices(self, record):
-        if record.num_frames <= self.total_length:
+        if record.num_frames <= 0:
+            raise ValueError(f"Invalid num_frames: {record.num_frames}. num_frames must be positive.")
+        if record.num_frames <= self.total_length: # <=
             if self.loop:
                 return np.mod(np.arange(
                     self.total_length) + randint(record.num_frames // 2),

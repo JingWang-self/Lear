@@ -22,6 +22,13 @@ data:
 logging:
   eval_freq: 1
   print_freq: 10
+mm_prompt:
+  CTX_INIT: a human action of
+  N_CTX: 2
+  PREC: fp16
+  PROMPT_DEPTH: 9
+  SUBSAMPLE_CLASSES: all
+  use: true
 network:
   arch: ViT-B/16
   describe: null
@@ -31,8 +38,8 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: CLIP_MaPLe # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
-pretrain: 
+  type: full_supervised
+pretrain: null
 prompt:
   DEEP: true
   DROPOUT: 0.1
@@ -57,12 +64,6 @@ solver:
   start_epoch: 0
   type: cosine
   weight_decay: 0.2
-training_name: PAF_train_vit_16_8_frame
+training_name: PAF_train_full_supervised
 use_motion_loss: true
-weight_save_dir: /root/autodl-tmp/EZ_CLIP_events
-MAPLE:
-    N_CTX: 2
-    CTX_INIT: "a photo of a human action for"
-    PREC: fp16
-    PROMPT_DEPTH: 9
-    SUBSAMPLE_CLASSES: "all"
+weight_save_dir: /root/autodl-tmp/SAMPLE

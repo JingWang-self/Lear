@@ -25,7 +25,7 @@ class KLLoss(nn.Module):
         loss = self.error_metric(probs1, probs2) * batch_size
         return loss
     
-    
+     
 class Motion_loss(nn.Module):
     
     def __init__(self):

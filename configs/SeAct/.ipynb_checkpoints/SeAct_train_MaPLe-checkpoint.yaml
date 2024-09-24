@@ -6,11 +6,11 @@ use_motion_loss: True
 training_name: SeAct_train_vit_16_8_frame
 T_Adapter: False
 prompt:
-    use: False
+    use: True
     # num_of_token: 100 #197
     # num_of_text_token: 50   #77
     INITIATION: 'random' 
-    DEEP: False
+    DEEP: True
     DROPOUT: 0.1
 data:
     dataset: SeAct
@@ -40,7 +40,7 @@ network:
     tsm: False
     drop_out: 0.1
     emb_dropout: 0.0 
-    type: CLIP_MaPLe_init_promot # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts, CLIP_T_Adapter
+    type: CLIP_MaPLe_SAMPLE # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts, CLIP_T_Adapter
     sim_header: "Transf"  #Transf   meanP  LSTM Conv_1D Transf_cls
     joint: False
     describe:
@@ -64,9 +64,9 @@ solver:
 logging:
     print_freq: 10
     eval_freq: 1
-MAPLE:
+mm_prompt:
     N_CTX: 2
-    CTX_INIT: "a human action of "
+    CTX_INIT: "a human action of"
     PREC: fp16
     PROMPT_DEPTH: 9
     SUBSAMPLE_CLASSES: "all"

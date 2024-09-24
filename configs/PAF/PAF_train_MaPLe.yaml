@@ -1,23 +1,23 @@
-T_Adapter: true
+T_Adapter: false
 data:
   batch_size: 16
-  dataset: DVS128Gesture
-  gpt_discription: GPT_discription/DVS128Gesture_gpt_Class_discription_new.csv
+  dataset: PAF
+  gpt_discription: GPT_discription/PAF_gpt_Class_discription_new.csv
   image_tmpl: img_{:05d}.jpg
   index_bias: 1
   input_size: 224
-  label_list: lists/DVS128Gesture_labels.csv
+  label_list: lists/PAF_labels.csv
   modality: RGB
-  num_classes: 11
+  num_classes: 10
   num_segments: 8
   randaug:
     M: 0
     N: 0
   random_shift: true
   seg_length: 1
-  train_list: dataset_splits/DVS128Gesture/Zero-shot/train.txt
+  train_list: dataset_splits/PAF/Zero-shot/train.txt
   use_llm: true
-  val_list: dataset_splits/DVS128Gesture/Zero-shot/val.txt
+  val_list: dataset_splits/PAF/Zero-shot/val.txt
   workers: 16
 logging:
   eval_freq: 1
@@ -31,19 +31,19 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: CLIP_T_Adapter # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
-pretrain: null
+  type: CLIP_MaPLe # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
+pretrain: 
 prompt:
   DEEP: true
   DROPOUT: 0.1
   INITIATION: random
-  use: false
+  use: true
 resume: null
 seed: 1024
 solver:
   clip_gradient: 20
   epoch_offset: 0
-  epochs: 150
+  epochs: 100
   evaluate: false
   f_ratio: 10
   loss_type: nll
@@ -57,12 +57,12 @@ solver:
   start_epoch: 0
   type: cosine
   weight_decay: 0.2
-training_name: DVS128Gesture_train_vit_16_8_frame
+training_name: PAF_train_vit_16_8_frame
 use_motion_loss: true
 weight_save_dir: /root/autodl-tmp/EZ_CLIP_events
-MAPLE:
+mm_prompt:
     N_CTX: 2
-    CTX_INIT: "a photo of a"
+    CTX_INIT: "a photo of a human action for"
     PREC: fp16
     PROMPT_DEPTH: 9
     SUBSAMPLE_CLASSES: "all"

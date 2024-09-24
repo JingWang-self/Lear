@@ -38,9 +38,8 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: zero_shot_based_HARDVS
-# pretrain: /root/autodl-tmp/SAMPLE/full_supervised/ViT-B/16/HARDVS/HARDVS_train_full_supervised/model_best.pt
-pretrain: /root/autodl-tmp/SAMPLE/full_supervised/ViT-B/16/PAF/PAF_train_full_supervised/model_best.pt
+  type: full_supervised
+pretrain: /root/autodl-tmp/SAMPLE/full_supervised/ViT-B/16/SeAct/SeAct_train_full_supervised/model_best.pt
 prompt:
   DEEP: true
   DROPOUT: 0.1
@@ -64,6 +63,6 @@ solver:
   start_epoch: 0
   type: cosine
   weight_decay: 0.2
-training_name: SeAct_zero_shot_testing
+training_name: SeAct_testing_full_supervised
 use_motion_loss: true
 weight_save_dir: /root/autodl-tmp/SAMPLE

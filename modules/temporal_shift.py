@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from clip.model_ori import VisualTransformer
+from clip.model import VisualTransformer
 import numpy as np
 
 

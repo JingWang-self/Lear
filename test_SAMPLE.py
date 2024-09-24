@@ -119,8 +119,13 @@ class MultiModalPromptLearner(nn.Module):
         # These token vectors will be saved when in save_model(),
         # but they should be ignored in load_model() as we want to use
         # those computed using the current class names
+        #! changed 
+        '''
         self.register_buffer("token_prefix", embedding[:, :1, :])  # SOS
         self.register_buffer("token_suffix", embedding[:, 1 + n_ctx:, :])  # CLS, EOS
+        '''
+        self.token_prefix = embedding[:, :1, :]
+        self.token_suffix = embedding[:, 1 + n_ctx:, :]
 
         self.n_cls = n_cls
         self.n_ctx = n_ctx
@@ -137,6 +142,8 @@ class MultiModalPromptLearner(nn.Module):
             prefix = prefix[label]
             suffix = suffix[label]
 
+        prefix = prefix.to(ctx.device)
+        suffix = suffix.to(ctx.device)   
         prompts = torch.cat(
             [
                 prefix,  # (dim0, 1, dim)
@@ -148,7 +155,7 @@ class MultiModalPromptLearner(nn.Module):
 
         return prompts
 
-    def forward(self):
+    def forward(self, label=None):
         ctx = self.ctx
 
         if ctx.dim() == 2:
@@ -156,7 +163,7 @@ class MultiModalPromptLearner(nn.Module):
 
         prefix = self.token_prefix
         suffix = self.token_suffix
-        prompts = self.construct_prompts(ctx, prefix, suffix)
+        prompts = self.construct_prompts(ctx, prefix, suffix, label)
 
         # Before returning, need to transform
         # prompts to 768 for the visual side
@@ -192,10 +199,10 @@ class CustomCLIP(nn.Module):
 
         return logits
     
-    def encode(self, image):
+    def encode(self, image, label=None):
         tokenized_prompts = self.tokenized_prompts
 
-        prompts, shared_ctx, deep_compound_prompts_text, deep_compound_prompts_vision = self.prompt_learner()
+        prompts, shared_ctx, deep_compound_prompts_text, deep_compound_prompts_vision = self.prompt_learner(label)
         text_features = self.text_encoder(prompts, tokenized_prompts, deep_compound_prompts_text)
         image_features = self.image_encoder(image.type(self.dtype), shared_ctx, deep_compound_prompts_vision)
         return  image_features, text_features
@@ -488,7 +495,7 @@ def validate(
         )
         feature_plot(video_features, labels, working_dir, epoch, dataset_name)
 
-        '''
+        
         # Plot the images and their predictions
         fig, axes = plt.subplots(2, 3, figsize=(15, 10))
         axes = axes.flatten()
@@ -511,7 +518,7 @@ def validate(
             dpi=300,
         )
         plt.close()
-        '''
+        
 
     print(
         "Epoch: [{}/{}]: Top1: {}, Top5: {}".format(
@@ -621,7 +628,7 @@ def main():
         config["network"]["type"],
         config["network"]["arch"],
         config["data"]["dataset"],
-        args.traning_name,
+        config['training_name']
     )
     print("-" * 80)
     print(" " * 20, "working dir: {}".format(working_dir))

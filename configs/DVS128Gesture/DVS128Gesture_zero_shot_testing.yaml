@@ -21,6 +21,13 @@ data:
 logging:
   eval_freq: 1
   print_freq: 10
+mm_prompt:
+  CTX_INIT: a human action of
+  N_CTX: 2
+  PREC: fp16
+  PROMPT_DEPTH: 9
+  SUBSAMPLE_CLASSES: all
+  use: true
 network:
   arch: ViT-B/16
   describe: null
@@ -30,8 +37,8 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: CLIP_MaPLe_init_promot # CLIP_Visual_Prompts, CLIP_Text_Prompts, CLIP_Multimodal_Prompts
-pretrain: /root/autodl-tmp/EZ_CLIP_events/CLIP_MaPLe/ViT-B/16/DVS128Gesture/DVS128Gesture_train_vit_16_8_frame/model_best.pt
+  type: zero_shot_based_HARDVS
+pretrain: /root/autodl-tmp/SAMPLE/full_supervised/ViT-B/16/HARDVS/HARDVS_train_full_supervised/model_best.pt
 prompt:
   DEEP: true
   DROPOUT: 0.1
@@ -55,12 +62,6 @@ solver:
   start_epoch: 0
   type: cosine
   weight_decay: 0.2
-training_name: DVS128Gesture_zero_shot_testing_vit_16_8_frame
+training_name: DVS128Gesture_zero_shot_testing
 use_motion_loss: true
-weight_save_dir: /root/autodl-tmp/EZ_CLIP_events
-MAPLE:
-    N_CTX: 2
-    CTX_INIT: "a human action of "
-    PREC: fp16
-    PROMPT_DEPTH: 9
-    SUBSAMPLE_CLASSES: "all"
+weight_save_dir: /root/autodl-tmp/SAMPLE

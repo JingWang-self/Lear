@@ -33,10 +33,8 @@ class HARDVS(Dataset):
                  label_idx 0 to cls 1
         """
         event_stream_path = self.files[idx].split('\t')[0][:-1]
-        # print(event_stream_path)
         # label
-        label_idx = int(event_stream_path.split('/')[7][7:])
-        # print(label_idx)
+        label_idx = int(event_stream_path.split('/')[4][7:])
 
         events_stream = np.load(event_stream_path)
         x, y, ts, pol = events_stream['x'], events_stream['y'], events_stream['t'], events_stream['p']
@@ -283,11 +281,11 @@ class HARDVS(Dataset):
 
 
 if __name__ == '__main__':
-    all_path = r'Path-to-/HARDVS_whole.txt' # TODO: Change to your directory
+    all_path = r'/root/wj/EZ_CLIP/AFE/HARDVS/HARDVS.txt' # TODO: Change to your directory
     num_events = 80000 # 1093470 546735 273367 136683 68341
     median_length = 1500000
     frame = 1513
-    tf = open("Path-to-/HARDVS_300_class.json", "r")  # TODO: Change to your directory
+    tf = open("/root/wj/EZ_CLIP/AFE/HARDVS/HARDVS.json", "r")  # TODO: Change to your directory
     datasets = HARDVS(all_path, representation='rgb', median_length = median_length,
                    num_events = num_events, frame=frame, augmentation=False)
     feeder = DataLoader(datasets, batch_size=1, shuffle=False)
@@ -298,20 +296,23 @@ if __name__ == '__main__':
         B, T, H, W, C = events_image.shape
         for i in range(B):
             for j in range(T):
-                file_path = event_stream_path[0].replace('HARDVS', 'HARDVS_Sampled')
-                folder_path = '/'.join([file_path.split('/')[i] for i in range(6)])
+                file_path = event_stream_path[0].replace('HARDVS', 'HARDVS_Sampled_EZCLIP') # /home/data/zhujinjing/zhoujiazhou/HARDVS_Sampled_EZCLIP/MINIHARDVS_EVENT_files/action_109/dvSave-2021_09_26_12_07_19/dvSave-2021_09_26_12_07_19.npz
+                folder_path = '/'.join([file_path.split('/')[i] for i in range(4)]) # home/data/zhujinjing/zhoujiazhou/HARDVS_Sampled_EZCLIP/MINIHARDVS_EVENT_files/
                 if not os.path.exists(folder_path):
                     os.makedirs(folder_path)
-                class_path = '/'.join([folder_path, file_path.split('/')[7]])
+                class_path = '/'.join([folder_path, file_path.split('/')[4]]) # home/data/zhujinjing/zhoujiazhou/HARDVS_Sampled_EZCLIP/MINIHARDVS_EVENT_files/action_109
                 # print(class_path)
                 if not os.path.exists(class_path):
                     os.makedirs(class_path)
-                class_path2 = '/'.join([class_path, file_path.split('/')[8]])
+                class_path2 = '/'.join([class_path, file_path.split('/')[5]]) #  + dvSave-2021_09_26_12_07_19
                 # print(class_path)
                 if not os.path.exists(class_path2):
                     os.makedirs(class_path2)
 
-                file_path = class_path2 + '/' + str(j) +'.png'
+                file_path = class_path2 + '/' + 'img_{:05d}.jpg'.format(j+1)
+                if os.path.exists(file_path):
+                    print(f"Skipping already processed file: {file_path}")
+                    continue  # 如果文件已存在，跳过
                 img = events_image[i,j,:,:,:]
                 cv2.imwrite(file_path, img)
         if T == 1:
