@@ -1,0 +1,333 @@
+--------------------------------------------------------------------------------
+                     working dir: /root/autodl-tmp/SAMPLE/few_shot/ViT-B/16/DVS128Gesture/DVS128Gesture_few_shot_train_4
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+                               Config
+{   'T_Adapter': False,
+    'data': {   'batch_size': 16,
+                'dataset': 'DVS128Gesture',
+                'gpt_discription': 'GPT_discription/DVS128Gesture_gpt_Class_discription_new.csv',
+                'image_tmpl': 'img_{:05d}.jpg',
+                'index_bias': 1,
+                'input_size': 224,
+                'label_list': 'lists/DVS128Gesture_labels.csv',
+                'modality': 'RGB',
+                'num_classes': 58,
+                'num_segments': 8,
+                'randaug': {'M': 0, 'N': 0},
+                'random_shift': True,
+                'seg_length': 1,
+                'train_list': 'dataset_splits/DVS128Gesture/few_shot/DVS128Gesture_few_shot_train_4.txt',
+                'use_llm': True,
+                'val_list': 'dataset_splits/DVS128Gesture/Zero-shot/val.txt',
+                'workers': 16},
+    'logging': {'eval_freq': 1, 'print_freq': 10},
+    'mm_prompt': {   'CTX_INIT': 'a human action of',
+                     'N_CTX': 2,
+                     'PREC': 'fp16',
+                     'PROMPT_DEPTH': 9,
+                     'SUBSAMPLE_CLASSES': 'all',
+                     'use': True},
+    'network': {   'arch': 'ViT-B/16',
+                   'describe': None,
+                   'drop_out': 0.1,
+                   'emb_dropout': 0.0,
+                   'init': True,
+                   'joint': False,
+                   'sim_header': 'Transf',
+                   'tsm': False,
+                   'type': 'few_shot'},
+    'pretrain': None,
+    'prompt': {   'DEEP': True,
+                  'DROPOUT': 0.1,
+                  'INITIATION': 'random',
+                  'use': True},
+    'resume': None,
+    'seed': 1024,
+    'solver': {   'clip_gradient': 20,
+                  'epoch_offset': 0,
+                  'epochs': 100,
+                  'evaluate': False,
+                  'f_ratio': 10,
+                  'loss_type': 'nll',
+                  'lr': 0.0001,
+                  'lr_decay_factor': 0.1,
+                  'lr_decay_step': 15,
+                  'lr_warmup_step': 5,
+                  'momentum': 0.9,
+                  'optim': 'adamw',
+                  'ratio': 1,
+                  'start_epoch': 0,
+                  'type': 'cosine',
+                  'weight_decay': 0.2},
+    'training_name': 'DVS128Gesture_few_shot_train_4',
+    'use_motion_loss': True,
+    'weight_save_dir': '/root/autodl-tmp/SAMPLE'}
+--------------------------------------------------------------------------------
+dropout used:[0.0, 0.00909090880304575, 0.0181818176060915, 0.027272727340459824, 0.036363635212183, 0.045454543083906174, 0.054545458406209946, 0.06363636255264282, 0.0727272778749466, 0.08181818574666977, 0.09090909361839294, 0.10000000149011612]
+dropout used:[0.0, 0.00909090880304575, 0.0181818176060915, 0.027272727340459824, 0.036363635212183, 0.045454543083906174, 0.054545458406209946, 0.06363636255264282, 0.0727272778749466, 0.08181818574666977, 0.09090909361839294, 0.10000000149011612]
+loading clip pretrained model!
+train transforms: [Compose(
+    <datasets.transforms_ss.GroupMultiScaleCrop object at 0x7f0d484685b0>
+    <datasets.transforms_ss.GroupRandomHorizontalFlip object at 0x7f0d48468f40>
+    <datasets.transforms_ss.GroupRandomColorJitter object at 0x7f0d48468f70>
+    <datasets.transforms_ss.GroupRandomGrayscale object at 0x7f0d48468fa0>
+    <datasets.transforms_ss.GroupGaussianBlur object at 0x7f0d48468df0>
+    <datasets.transforms_ss.GroupSolarization object at 0x7f0d48468d90>
+), Compose(
+    <datasets.transforms_ss.Stack object at 0x7f0d48468ca0>
+    <datasets.transforms_ss.ToTorchFormatTensor object at 0x7f0d48468c40>
+    <datasets.transforms_ss.GroupNormalize object at 0x7f0d48468be0>
+)]
+val transforms: [Compose(
+    <datasets.transforms_ss.GroupScale object at 0x7f0d48468b20>
+    <datasets.transforms_ss.GroupCenterCrop object at 0x7f0d48468e80>
+), Compose(
+    <datasets.transforms_ss.Stack object at 0x7f0d484689a0>
+    <datasets.transforms_ss.ToTorchFormatTensor object at 0x7f0d48468940>
+    <datasets.transforms_ss.GroupNormalize object at 0x7f0d484688e0>
+)]
+Multi-modal Prompt Learning
+Initial context: "a human action of"
+Number of mm_prompt context words (tokens): 2
+Turning off gradients in both the image and the text encoder
+prompt_learner-- module.prompt_learner.ctx
+prompt_learner-- module.prompt_learner.proj.weight
+prompt_learner-- module.prompt_learner.proj.bias
+prompt_learner-- module.prompt_learner.compound_prompts_text.0
+prompt_learner-- module.prompt_learner.compound_prompts_text.1
+prompt_learner-- module.prompt_learner.compound_prompts_text.2
+prompt_learner-- module.prompt_learner.compound_prompts_text.3
+prompt_learner-- module.prompt_learner.compound_prompts_text.4
+prompt_learner-- module.prompt_learner.compound_prompts_text.5
+prompt_learner-- module.prompt_learner.compound_prompts_text.6
+prompt_learner-- module.prompt_learner.compound_prompts_text.7
+prompt_learner-- module.prompt_learner.compound_prompt_projections.0.weight
+prompt_learner-- module.prompt_learner.compound_prompt_projections.0.bias
+prompt_learner-- module.prompt_learner.compound_prompt_projections.1.weight
+prompt_learner-- module.prompt_learner.compound_prompt_projections.1.bias
+prompt_learner-- module.prompt_learner.compound_prompt_projections.2.weight
+prompt_learner-- module.prompt_learner.compound_prompt_projections.2.bias
+prompt_learner-- module.prompt_learner.compound_prompt_projections.3.weight
+prompt_learner-- module.prompt_learner.compound_prompt_projections.3.bias
+prompt_learner-- module.prompt_learner.compound_prompt_projections.4.weight
+prompt_learner-- module.prompt_learner.compound_prompt_projections.4.bias
+prompt_learner-- module.prompt_learner.compound_prompt_projections.5.weight
+prompt_learner-- module.prompt_learner.compound_prompt_projections.5.bias
+prompt_learner-- module.prompt_learner.compound_prompt_projections.6.weight
+prompt_learner-- module.prompt_learner.compound_prompt_projections.6.bias
+prompt_learner-- module.prompt_learner.compound_prompt_projections.7.weight
+prompt_learner-- module.prompt_learner.compound_prompt_projections.7.bias
+text--- module.image_encoder.transformer.resblocks.0.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.0.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.0.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.0.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.1.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.1.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.1.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.1.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.2.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.2.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.2.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.2.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.3.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.3.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.3.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.3.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.4.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.4.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.4.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.4.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.5.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.5.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.5.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.5.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.6.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.6.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.6.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.6.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.7.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.7.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.7.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.7.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.8.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.8.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.8.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.8.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.9.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.9.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.9.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.9.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.10.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.10.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.10.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.10.Adapter.D_fc2.bias
+text--- module.image_encoder.transformer.resblocks.11.Adapter.D_fc1.weight
+text--- module.image_encoder.transformer.resblocks.11.Adapter.D_fc1.bias
+text--- module.image_encoder.transformer.resblocks.11.Adapter.D_fc2.weight
+text--- module.image_encoder.transformer.resblocks.11.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.0.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.0.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.0.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.0.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.1.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.1.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.1.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.1.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.2.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.2.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.2.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.2.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.3.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.3.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.3.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.3.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.4.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.4.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.4.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.4.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.5.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.5.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.5.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.5.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.6.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.6.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.6.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.6.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.7.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.7.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.7.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.7.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.8.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.8.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.8.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.8.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.9.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.9.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.9.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.9.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.10.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.10.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.10.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.10.Adapter.D_fc2.bias
+text--- module.text_encoder.transformer.resblocks.11.Adapter.D_fc1.weight
+text--- module.text_encoder.transformer.resblocks.11.Adapter.D_fc1.bias
+text--- module.text_encoder.transformer.resblocks.11.Adapter.D_fc2.weight
+text--- module.text_encoder.transformer.resblocks.11.Adapter.D_fc2.bias
+Number of Trainable Parameters with "prompts" in their names: 0.074
+Number of Trainable Parameters with "Text adapters" in their names: 5.131
+Number of Trainable Parameters with "S visual adapters" in their names: 0.000
+Number of Trainable Parameters with "T visual adapters" in their names: 0.000
+Number of Trainable Parameters with "prompt_learner" in their names: 3.555
+Modified CLIP_model Trainable Parameters: 8.760M
+0.0001
+0.0001
+AdamW
+visual.transformer.T_prompt_embeddings: True
+visual.transformer.resblocks.0.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.0.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.0.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.0.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.1.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.1.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.1.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.1.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.2.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.2.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.2.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.2.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.3.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.3.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.3.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.3.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.4.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.4.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.4.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.4.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.5.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.5.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.5.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.5.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.6.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.6.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.6.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.6.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.7.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.7.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.7.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.7.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.8.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.8.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.8.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.8.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.9.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.9.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.9.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.9.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.10.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.10.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.10.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.10.Adapter.D_fc2.bias: True
+visual.transformer.resblocks.11.Adapter.D_fc1.weight: True
+visual.transformer.resblocks.11.Adapter.D_fc1.bias: True
+visual.transformer.resblocks.11.Adapter.D_fc2.weight: True
+visual.transformer.resblocks.11.Adapter.D_fc2.bias: True
+transformer.resblocks.0.Adapter.D_fc1.weight: True
+transformer.resblocks.0.Adapter.D_fc1.bias: True
+transformer.resblocks.0.Adapter.D_fc2.weight: True
+transformer.resblocks.0.Adapter.D_fc2.bias: True
+transformer.resblocks.1.Adapter.D_fc1.weight: True
+transformer.resblocks.1.Adapter.D_fc1.bias: True
+transformer.resblocks.1.Adapter.D_fc2.weight: True
+transformer.resblocks.1.Adapter.D_fc2.bias: True
+transformer.resblocks.2.Adapter.D_fc1.weight: True
+transformer.resblocks.2.Adapter.D_fc1.bias: True
+transformer.resblocks.2.Adapter.D_fc2.weight: True
+transformer.resblocks.2.Adapter.D_fc2.bias: True
+transformer.resblocks.3.Adapter.D_fc1.weight: True
+transformer.resblocks.3.Adapter.D_fc1.bias: True
+transformer.resblocks.3.Adapter.D_fc2.weight: True
+transformer.resblocks.3.Adapter.D_fc2.bias: True
+transformer.resblocks.4.Adapter.D_fc1.weight: True
+transformer.resblocks.4.Adapter.D_fc1.bias: True
+transformer.resblocks.4.Adapter.D_fc2.weight: True
+transformer.resblocks.4.Adapter.D_fc2.bias: True
+transformer.resblocks.5.Adapter.D_fc1.weight: True
+transformer.resblocks.5.Adapter.D_fc1.bias: True
+transformer.resblocks.5.Adapter.D_fc2.weight: True
+transformer.resblocks.5.Adapter.D_fc2.bias: True
+transformer.resblocks.6.Adapter.D_fc1.weight: True
+transformer.resblocks.6.Adapter.D_fc1.bias: True
+transformer.resblocks.6.Adapter.D_fc2.weight: True
+transformer.resblocks.6.Adapter.D_fc2.bias: True
+transformer.resblocks.7.Adapter.D_fc1.weight: True
+transformer.resblocks.7.Adapter.D_fc1.bias: True
+transformer.resblocks.7.Adapter.D_fc2.weight: True
+transformer.resblocks.7.Adapter.D_fc2.bias: True
+transformer.resblocks.8.Adapter.D_fc1.weight: True
+transformer.resblocks.8.Adapter.D_fc1.bias: True
+transformer.resblocks.8.Adapter.D_fc2.weight: True
+transformer.resblocks.8.Adapter.D_fc2.bias: True
+transformer.resblocks.9.Adapter.D_fc1.weight: True
+transformer.resblocks.9.Adapter.D_fc1.bias: True
+transformer.resblocks.9.Adapter.D_fc2.weight: True
+transformer.resblocks.9.Adapter.D_fc2.bias: True
+transformer.resblocks.10.Adapter.D_fc1.weight: True
+transformer.resblocks.10.Adapter.D_fc1.bias: True
+transformer.resblocks.10.Adapter.D_fc2.weight: True
+transformer.resblocks.10.Adapter.D_fc2.bias: True
+transformer.resblocks.11.Adapter.D_fc1.weight: True
+transformer.resblocks.11.Adapter.D_fc1.bias: True
+transformer.resblocks.11.Adapter.D_fc2.weight: True
+transformer.resblocks.11.Adapter.D_fc2.bias: True
+token_embedding.weight: True
+------------------------------------------------------------------------
+Epoch 0 start ..
+/root/miniconda3/lib/python3.8/site-packages/torch/nn/_reduction.py:42: UserWarning: size_average and reduce args will be deprecated, please use reduction='mean' instead.
+  warnings.warn(warning.format(ret))
+Traceback (most recent call last):
+  File "train_SAMPLE.py", line 783, in <module>
+    main()
+  File "train_SAMPLE.py", line 530, in main
+    prompt_images = prompt_images.to(device)
+torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 74.00 MiB (GPU 0; 23.64 GiB total capacity; 267.08 MiB already allocated; 61.25 MiB free; 282.00 MiB reserved in total by PyTorch) If reserved memory is >> allocated memory try setting max_split_size_mb to avoid fragmentation.  See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF

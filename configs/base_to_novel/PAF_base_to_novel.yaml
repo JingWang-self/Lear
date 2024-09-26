@@ -1,23 +1,26 @@
 T_Adapter: false
 data:
   batch_size: 20
-  dataset: SeAct
-  gpt_discription: GPT_discription/SeAct_gpt_Class_discription_new.csv
+  dataset: PAF
+  gpt_discription: GPT_discription/PAF_gpt_Class_discription_new.csv
   image_tmpl: img_{:05d}.jpg
   index_bias: 1
   input_size: 224
-  label_list: lists/seact_labels.csv
+  label_list: lists/PAF_labels.csv
   modality: RGB
-  num_classes: 58
+  novel_gpt_discription: GPT_discription/PAF_gpt_Class_discription_new.csv
+  novel_label_list: lists/PAF_labels.csv
+  novel_val_list: dataset_splits/PAF/base_to_novel/PAF_novel_val.txt
   num_segments: 8
   randaug:
     M: 0
     N: 0
+  random_shift: false
   seg_length: 1
-  split: 1
+  train_list: dataset_splits/PAF/base_to_novel/PAF_base_train.txt
   use_llm: true
-  val_list: dataset_splits/SeAct/Zero-shot/val.txt
-  workers: 8
+  val_list: dataset_splits/PAF/base_to_novel/PAF_base_val.txt
+  workers: 16
 logging:
   eval_freq: 1
   print_freq: 10
@@ -29,8 +32,8 @@ mm_prompt:
   SUBSAMPLE_CLASSES: all
   use: true
 network:
+  Return_Attention: false
   arch: ViT-B/16
-  arch_path: null
   describe: null
   drop_out: 0.1
   emb_dropout: 0.0
@@ -38,13 +41,14 @@ network:
   joint: false
   sim_header: Transf
   tsm: false
-  type: zero_shot_based_HARDVS
-pretrain: /root/autodl-tmp/SAMPLE/full_supervised/ViT-B/16/HARDVS/HARDVS_train_full_supervised/model_best.pt
+  type: base_to_novel
+pretrain: null
 prompt:
   DEEP: true
   DROPOUT: 0.1
   INITIATION: random
   use: true
+resume: null
 seed: 1024
 solver:
   clip_gradient: 20
@@ -53,7 +57,7 @@ solver:
   evaluate: false
   f_ratio: 10
   loss_type: nll
-  lr: 1.0e-05
+  lr: 0.0001
   lr_decay_factor: 0.1
   lr_decay_step: 15
   lr_warmup_step: 5
@@ -63,6 +67,6 @@ solver:
   start_epoch: 0
   type: cosine
   weight_decay: 0.2
-training_name: SeAct_zero_shot_testing
+training_name: PAF_base_to_novel_base_to_novel
 use_motion_loss: true
 weight_save_dir: /root/autodl-tmp/SAMPLE

@@ -5,8 +5,9 @@ Support on SeAct|PAF|DVS128Gesture
 ## Training
 ```
 # Train
-python train.py --config configs/DVS128Gesture/DVS128Gesture_train.yaml
-python train.py --config configs/PAF/PAF_train.yaml
+python train_SAMPLE.py --config configs/DVS128Gesture/DVS128Gesture_train.yaml
+python train_SAMPLE.py --config configs/PAF/PAF_train.yaml
+python train_base_to_novel_SAMPLE.py --config configs/base_to_novel/SeAct_base_to_novel.yaml
 
 ```
 ```

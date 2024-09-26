@@ -1,7 +1,8 @@
 import os
 import os.path as osp
 from collections import OrderedDict
-import math,copy
+import math, copy
+
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import torch.nn as nn
 from datasets import Action_DATASETS
@@ -27,14 +28,14 @@ from utils.tools import *
 from utils.Text_Prompt import *
 from utils.saving import *
 
-import clip 
+import clip
 from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
 
 _tokenizer = _Tokenizer()
 
 
-
 #!New Added#####################################################################
+
 
 class TextEncoder(nn.Module):
     def __init__(self, clip_model):
@@ -199,10 +200,13 @@ class CustomCLIP(nn.Module):
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
         logits = logit_scale * image_features @ text_features.t()
+        print(f'logits.shape:{logits.shape}')
+        print(f'label.shape:{label.shape}')
         if self.prompt_learner.training:
             return F.cross_entropy(logits, label)
 
         return logits
+        
     
     def encode(self, image, label=None):
         if label is not None:
@@ -216,24 +220,6 @@ class CustomCLIP(nn.Module):
         return  image_features, text_features
     
 #!##############################################################################
-'''
-class TextCLIP(nn.Module):
-    def __init__(self, model):
-        super(TextCLIP, self).__init__()
-        self.model = model
-
-    def forward(self, text):
-        return self.model.encode_text(text)
-
-class ImageCLIP(nn.Module):
-    def __init__(self, model):
-        super(ImageCLIP, self).__init__()
-        self.model = model
-
-    def forward(self, image):
-        return self.model.encode_image(image)
-'''
-
 
 
 def print_time(seconds):
@@ -245,28 +231,60 @@ def print_time(seconds):
     return "%d:%02d:%02d" % (hour, minutes, seconds)
 
 
+def generate_triplet_samples(image_embeddings, text_embeddings, list_ids):
+    anchor_indices = []
+    positive_indices = []
+    negative_indices = []
+
+    for idx, anchor_class in enumerate(list_ids):
+        # Find positive and negative indices
+        positive_indices_for_class = [
+            i for i, id in enumerate(list_ids) if id == anchor_class
+        ]
+        negative_indices_for_class = [
+            i for i, id in enumerate(list_ids) if id != anchor_class
+        ]
+
+        positive_idx = random.choice(positive_indices_for_class)
+        negative_idx = random.choice(negative_indices_for_class)
+
+        anchor_indices.append(idx)
+        positive_indices.append(positive_idx)
+        negative_indices.append(negative_idx)
+
+    anchor_images = image_embeddings[anchor_indices]
+    anchor_texts = text_embeddings[anchor_indices]
+    positive_images = image_embeddings[positive_indices]
+    positive_texts = text_embeddings[positive_indices]
+    negative_images = image_embeddings[negative_indices]
+    negative_texts = text_embeddings[negative_indices]
+
+    return {
+        "anchor_image": anchor_images,
+        "anchor_text": anchor_texts,
+        "positive_image": positive_images,
+        "positive_text": positive_texts,
+        "negative_image": negative_images,
+        "negative_text": negative_texts,
+    }
+
+
 def main():
     global args, best_prec1
     global global_step
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", "-cfg", default="")
     parser.add_argument("--traning_name", default="")
-    # add --few_shot 2,4,8,16, if not few-shot, then default is 0, if few-shot ,change the config file (configs/few_shot/SeAct_few_shot.yaml)
-    # and change the ['training_name’] & ['data']['train_list'] in the config file
-    # and change the ['data']['val_list'] in the config file
-    parser.add_argument("--few_shot", default=0)
     args = parser.parse_args()
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
-    if args.few_shot != 0:
-        config["training_name"] = config["training_name"] + "_" + args.few_shot
-        config["data"]["train_list"] = config["data"]["train_list"].replace("train","train_"+args.few_shot)
+    args.traning_name = config["training_name"]
     working_dir = os.path.join(
         config["weight_save_dir"],
         config["network"]["type"],
         config["network"]["arch"],
         config["data"]["dataset"],
-        config["training_name"],
+        args.traning_name,
     )
     print("-" * 80)
     print(" " * 20, "working dir: {}".format(working_dir))
@@ -287,15 +305,18 @@ def main():
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # If using GPU then use mixed precision training.
 
-    design_details = {"trainer": 'MaPLe',
-                    "vision_depth": 0,
-                    "language_depth": 0, "vision_ctx": 0,
-                    "language_ctx": 0,
-                    "maple_length": config.mm_prompt.N_CTX}
+    design_details = {
+        "trainer": "MaPLe",
+        "vision_depth": 0,
+        "language_depth": 0,
+        "vision_ctx": 0,
+        "language_ctx": 0,
+        "maple_length": config.mm_prompt.N_CTX,
+    }
     model, clip_state_dict = clip.load(
         config.network.arch,
         config,
-        device=torch.device('cpu'),
+        device=torch.device("cpu"),
         jit=False,
         tsm=config.network.tsm,
         T=config.data.num_segments,
@@ -303,17 +324,17 @@ def main():
         emb_dropout=config.network.emb_dropout,
         pretrain=config.network.init,
         joint=config.network.joint,
-        design_details=design_details
+        design_details=design_details,
     )  # Must set jit=False for training  ViT-B/32
     transform_train = get_augmentation(True, config)
     transform_val = get_augmentation(False, config)
-    
+
     if config.data.randaug.N > 0:
         transform_train = randAugment(transform_train, config)
 
     print("train transforms: {}".format(transform_train.transforms))
     print("val transforms: {}".format(transform_val.transforms))
-    ############################## dataset  loader ###################################
+    ############################## base dataset  loader ###################################
     train_data = Action_DATASETS(
         config.data.train_list,
         config.data.label_list,
@@ -347,23 +368,47 @@ def main():
         pin_memory=False,
         drop_last=True,
     )
-    #################################################################
+    ###################################################################################################################################################
+
+    ############################## novel loader ###################################
+    novel_val_data = Action_DATASETS(
+        config.data.novel_val_list,
+        config.data.novel_label_list,
+        random_shift=False,
+        num_segments=config.data.num_segments,
+        image_tmpl=config.data.image_tmpl,
+        transform=transform_val,
+    )
+    novel_val_loader = DataLoader(
+        novel_val_data,
+        batch_size=config.data.batch_size,
+        num_workers=config.data.workers,
+        shuffle=False,
+        pin_memory=False,
+        drop_last=True,
+    )
+    ###################################################################################################################################################
+
     #! Added#######
     classnames = [name for id, name in train_data.classes]
     customCLIP = CustomCLIP(config, classnames, model).to(device)
     print("Turning off gradients in both the image and the text encoder")
     for name, param in customCLIP.named_parameters():
-        if "prompt_learner" not in name and "prompt" not in name and "Adapter" not in name: # EZ_CLIP + CoOp
-        # if "prompt_learner" not in name : # only CoOp
-        # if "prompt" not in name and "Adapter" not in name or "prompt_learner" in name: # EZ-CLIP
+        if (
+            "prompt_learner" not in name
+            and "prompt" not in name
+            and "Adapter" not in name
+        ):  # EZ_CLIP + CoOp
+            # if "prompt_learner" not in name : # only CoOp
+            # if "prompt" not in name and "Adapter" not in name or "prompt_learner" in name: # EZ-CLIP
             param.requires_grad_(False)
     customCLIP = torch.nn.DataParallel(customCLIP, device_ids=[0]).cuda()
     #! ############
-    ''' #! original
+    """ #! original
     model_text = TextCLIP(model)
     model_image = ImageCLIP(model)
 
-    '''
+    """
     text_param_count = 0
     param_count_with_prompts = 0
     param_count_with_adapters = 0
@@ -384,7 +429,7 @@ def main():
         if "T_Adapter" in name and "visual" in name:
             print("temporal visual--", name)
             visual_param_count_with_T_adapters += param.numel()
-            
+
     param_count_with_prompts_in_million = param_count_with_prompts / 1_000_000
     param_count_with_adapter_in_million = (param_count_with_adapters) / 1_000_000
     T_visual_param_count_with_adapter_in_million = (
@@ -410,36 +455,22 @@ def main():
     print(
         f'Number of Trainable Parameters with "prompt_learner" in their names: {text_param_count_in_million:.3f}'
     )
-    
-    '''
+
+    """
     for name, p in model.named_parameters():
         if "prompt" not in name and "Adapter" not in name:
             p.requires_grad = False
-    '''
+    """
     ###########################################################
     parameters = filter(lambda p: p.requires_grad, customCLIP.parameters())
     parameters = sum([np.prod(p.size()) for p in parameters]) / 1_000_000
     print("Modified CLIP_model Trainable Parameters: %.3fM" % parameters)
 
-    '''#!###########################################################
-    # prompt_vit_model = torch.nn.DataParallel(prompt_vit_model).cuda()
-    model_text = torch.nn.DataParallel(model_text, device_ids=[0]).cuda()
-    model_image = torch.nn.DataParallel(model_image, device_ids=[0]).cuda()
-    
-
-    if device == "cpu":
-        model_text.float()
-        model_image.float()
-    else:
-        clip.model.convert_weights(
-            model_text
-        )  # Actually this line is unnecessary since clip by default already on float16
-        clip.model.convert_weights(model_image)
-    '''#!###########################################################
-    '''
+    ##########################################################
+    """
     loss_img = KLLoss()
     loss_txt = KLLoss()
-    '''
+    """
     loss_img = nn.CrossEntropyLoss()
     loss_motion = Motion_loss()
 
@@ -449,51 +480,44 @@ def main():
         if os.path.isfile(config.pretrain):
             print(("=> loading checkpoint '{}'".format(config.pretrain)))
             checkpoint = torch.load(config.pretrain)
-            model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            state_dict = checkpoint["model_state_dict"]
+            # Ignore the fixed token vectors
+            if "module.prompt_learner.token_prefix" in state_dict:
+                del state_dict["module.prompt_learner.token_prefix"]
+            if "module.prompt_learner.token_suffix" in state_dict:
+                del state_dict["module.prompt_learner.token_suffix"]
+            customCLIP.load_state_dict(state_dict, strict=False)
             del checkpoint
         else:
-            print(("=> no checkpoint found at '{}'".format(config.resume)))
+            print(("=> no checkpoint found at '{}'".format(config.pretrain)))
 
     if config.resume:
         if os.path.isfile(config.resume):
             print(("=> loading checkpoint '{}'".format(config.resume)))
             checkpoint = torch.load(config.resume)
-            model.load_state_dict(checkpoint["model_state_dict"], strict=False)
-            start_epoch = checkpoint["epoch"]
-            print(
-                (
-                    "=> loaded checkpoint '{}' (epoch {})".format(
-                        config.evaluate, start_epoch
-                    )
-                )
-            )
+            state_dict = checkpoint["model_state_dict"]
+            # Ignore the fixed token vectors
+            if "module.prompt_learner.token_prefix" in state_dict:
+                del state_dict["module.prompt_learner.token_prefix"]
+            if "module.prompt_learner.token_suffix" in state_dict:
+                del state_dict["module.prompt_learner.token_suffix"]
+            customCLIP.load_state_dict(state_dict, strict=False)
             del checkpoint
         else:
-            print(("=> no checkpoint found at '{}'".format(config.pretrain)))
-    ''' #!###############################
-    # classes: [num_text_aug, tensor([n_cls, n_tkn])]
-    # text_dict:{key:index in text_aug, value: tensor([n_cls, n_tkn])}
-    # train_data.classes: list[(id,name)]
-    classes, num_text_aug, text_dict = text_prompt(
-        train_data, config.data.gpt_discription, config.data.use_llm
-    )
-    ''' #!###############################
-    
+            print(("=> no checkpoint found at '{}'".format(config.resume)))
+
+    ##### Novel########
+    novel_classes, novel_num_text_aug, novel_text_dict = text_prompt(novel_val_data,config.data.novel_gpt_discription, config.data.use_llm)
     optimizer = _optimizer(config, model)
     lr_scheduler = _lr_scheduler(config, optimizer)
 
-    loss = []
-    top_1_acc = []
-    ucf_top_1_acc = []
-    ucfds_top_1_acc = []
-    hmdb_top_1_acc = []
-    k600_top_1_acc = []
-
+    loss=[]
+    top_1_acc=[]
+    top_5_acc=[]
+    novel_top_1_acc=[]    
+    novel_top_5_acc=[]
     best_prec1 = 0.0
-    ucf_best_prec1 = 0.0
-    ucfds_best_prec1 = 0.0
-    hmdb_best_prec1 = 0.0
-    k600_best_prec1 = 0.0
+    novel_best_prec1 = 0.0
 
     if config.solver.evaluate:
         prec1, prec5 = validate(
@@ -505,9 +529,25 @@ def main():
             config,
             # num_text_aug,
             working_dir,
-            config.data.dataset,
-            is_Train=True,
+            f'base_{config["data"]["dataset"]}',
+            labels2name,
+            is_Train=False,
         )
+        novel_prec1, novel_prec5 = validate(
+            start_epoch,
+            novel_val_loader,
+            # classes,
+            device,
+            customCLIP,
+            config,
+            # num_text_aug,
+            working_dir,
+            f'novel_{config["data"]["dataset"]}',
+            labels2name,
+            is_Train=False,
+        )
+        print("{} Base Testing: {}/{}".format(config.data.dataset, prec1, best_prec1))
+        print("{} Novel Testing: {}/{}".format(config.data.dataset, novel_prec1, novel_best_prec1))
         return
 
     for k, v in model.named_parameters():
@@ -519,10 +559,10 @@ def main():
             "------------------------------------------------------------------------"
         )
         print("Epoch %d start .." % epoch)
-        '''
+        """
         model_image.train()
         model_text.train()
-        '''
+        """
         customCLIP.train()
         tic = time.time()
         epoch_loss = []
@@ -539,23 +579,24 @@ def main():
                 (-1, config.data.num_segments, 3) + prompt_images.size()[-2:]
             )
             b, t, c, h, w = prompt_images.size()
-            '''
+            """
             text_id = numpy.random.randint(num_text_aug, size=len(list_id))
             texts = torch.stack([text_dict[j][i, :] for i, j in zip(list_id, text_id)])
-            '''
+            """
             prompt_images = prompt_images.view(
                 -1, c, h, w
             )  # omit the Image.fromarray if the images already in PIL format, change this line to images=list_image if using preprocess inside the dataset class
             # texts = texts.to(device)
-            image_embedding, text_features = customCLIP.module.encode(prompt_images)
-            
+            image_embedding, text_features = customCLIP.module.encode(
+                prompt_images
+            )
+
             image_embedding = image_embedding.view(b, t, -1)
             if config.use_motion_loss:
                 loss_video_motion = loss_motion(image_embedding)
             image_embedding = image_embedding.mean(dim=1, keepdim=False)
 
-
-            '''
+            """
             text_embedding = customCLIP.module.encode_text()
 
             if config.network.fix_text:
@@ -564,40 +605,38 @@ def main():
             logits_per_image, logits_per_text = create_logits(
                 image_embedding, text_embedding, logit_scale
             )
-            '''
-            loss_imgs = customCLIP(
-                image_embedding, text_features, list_id
-            )
-            '''
+            """
+            loss_imgs = customCLIP(image_embedding, text_features, list_id)
+            """
             ground_truth = torch.tensor(
                 gen_label(list_id), dtype=image_embedding.dtype, device=device
             )
-            '''
+            """
             #!To Remove##############################
-            '''
+            """
             print(f'image_embedding.shape:{image_embedding.shape}, text_embedding.shape:{f.shape}')
             print(f'logits_per_image.shape:{logits_per_image.shape}, ground_truth.shape:{ground_truth.shape}')
             print(f'logits_per_text.shape:{logits_per_text.shape}, ground_truth.shape:{ground_truth.shape}')
             image_embedding.shape:torch.Size([16, 512]), text_embedding.shape:torch.Size([58, 512])
             logits_per_image.shape:torch.Size([16, 58]), ground_truth.shape:torch.Size([16, 16])
             logits_per_text.shape:torch.Size([58, 16]), ground_truth.shape:torch.Size([16, 16])
-            '''
+            """
             #!##############################
             # loss_imgs = loss_img(logits_per_image, ground_truth)
             # loss_texts = loss_txt(logits_per_text, ground_truth)
             # list_id = torch.tensor(list_id).long().to(device=device)
             # loss_imgs = loss_img(logits_per_image, list_id)
-            '''
+            """
             if config.use_motion_loss:
                 total_loss = (loss_imgs + loss_texts) / 2 + loss_video_motion
             else:
                 total_loss = (loss_imgs + loss_texts) / 2
-            '''
+            """
             if config.use_motion_loss:
                 total_loss = loss_imgs + loss_video_motion
             else:
                 total_loss = loss_imgs
-            
+
             epoch_loss.append(total_loss.item())
             total_loss.backward()
 
@@ -639,6 +678,18 @@ def main():
 
         if epoch % config.logging.eval_freq == 0:  # and epoch>0
             print("{} val accuracy".format(config.data.dataset))
+            novel_prec1, novel_prec5 = validate(
+                epoch,
+                novel_val_loader,
+                # classes,
+                device,
+                customCLIP,
+                config,
+                # num_text_aug,
+                working_dir,
+                f'novel_{config.data.dataset}',
+                is_Train=True,
+            )
             prec1, prec5 = validate(
                 epoch,
                 val_loader,
@@ -648,12 +699,15 @@ def main():
                 config,
                 # num_text_aug,
                 working_dir,
-                config.data.dataset,
+                f'base_{config.data.dataset}',
                 is_Train=True,
             )
         is_best = prec1 > best_prec1
         best_prec1 = max(prec1, best_prec1)
-        print("{} Testing: {}/{}".format(config.data.dataset, prec1, best_prec1))
+        print("{} Base Testing: {}/{}".format(config.data.dataset, prec1, best_prec1))
+        novel_is_best = novel_prec1 > novel_best_prec1
+        novel_best_prec1 = max(novel_prec1, novel_best_prec1)
+        print("{} Novel Testing: {}/{}".format(config.data.dataset, novel_prec1, novel_best_prec1))
 
         txt_path = "{}/log.txt".format(working_dir)
         if os.path.exists(txt_path):
@@ -687,7 +741,10 @@ def main():
                         )
                     )
                 f.write(
-                    "{} Testing: {}/{}\n".format(config.data.dataset, prec1, best_prec1)
+                    "{} Base Testing: top1:{}/{}, top5:{}\n".format(config.data.dataset, prec1, best_prec1, prec5)
+                )
+                f.write(
+                    "{} Novel Testing: top1:{}/{}, top5:{}\n".format(config.data.dataset, novel_prec1, novel_best_prec1, novel_prec5)
                 )
                 f.close()
         else:
@@ -720,7 +777,10 @@ def main():
                         )
                     )
                 f.write(
-                    "{} Testing: {}/{}\n".format(config.data.dataset, prec1, best_prec1)
+                    "{} Base Testing: top1:{}/{}, top5:{}\n".format(config.data.dataset, prec1, best_prec1, prec5)
+                )
+                f.write(
+                    "{} Novel Testing: top1:{}/{}, top5:{}\n".format(config.data.dataset, novel_prec1, novel_best_prec1, novel_prec5)
                 )
                 f.close()
 
@@ -728,23 +788,36 @@ def main():
         filename1 = "{}/last_model.pt".format(working_dir)
         # filename = "{}/epoch_{}_model.pt".format(working_dir,epoch)
         top_1_acc.append(prec1 / 100)
+        top_5_acc.append(prec5 / 100)
+        novel_top_1_acc.append(novel_prec1 / 100)
+        novel_top_5_acc.append(novel_prec5 / 100)
         loss.append(np.mean(epoch_loss))
         # epoch_saving(epoch, model,  optimizer, filename)
         epoch_saving(epoch, customCLIP, optimizer, filename1)
         if is_best:
             print(
-                "Saving best weight based on {} accuracy at epoch {}".format(
+                "Saving best weight based on {} Base accuracy at epoch {}".format(
                     config.data.dataset, epoch
                 )
             )
-            best_saving(working_dir, epoch, customCLIP, optimizer, config.data.dataset)
+            best_saving(working_dir, epoch, customCLIP, optimizer, f'base_{config.data.dataset}')
+        if novel_is_best:
+            print(
+                "Saving best weight based on {} Novel accuracy at epoch {}".format(
+                    config.data.dataset, epoch
+                )
+            )
+            best_saving(working_dir, epoch, customCLIP, optimizer, f'novel_{config.data.dataset}')
 
         print("Epoch %d end .." % epoch)
         ##############graph_plot################
         X = list(range(len(loss)))
         plt.plot(X, loss, color="r", label="Training loss")
         plt.plot(
-            X, top_1_acc, color="g", label="{} Accuracy".format(config.data.dataset)
+            X, top_1_acc, color="g", label="{} Base Accuracy".format(config.data.dataset)
+        )
+        plt.plot(
+            X, novel_top_1_acc, color="g", label="{} Novel Accuracy".format(config.data.dataset)
         )
 
         plt.xlabel("Epoch")
@@ -774,10 +847,38 @@ def main():
         config,
         # num_text_aug,
         working_dir,
-        config["data"]["dataset"],
+        f'base_{config["data"]["dataset"]}',
         labels2name,
         is_Train=False,
     )
+    novel_prec1, novel_prec5 = validate(
+        start_epoch,
+        novel_val_loader,
+        # classes,
+        device,
+        customCLIP,
+        config,
+        # num_text_aug,
+        working_dir,
+        f'novel_{config["data"]["dataset"]}',
+        labels2name,
+        is_Train=False,
+    )
+    print("{} Base Testing: {}/{}".format(config.data.dataset, prec1, best_prec1))
+    print("{} Novel Testing: {}/{}".format(config.data.dataset, novel_prec1, novel_best_prec1))
+    # log the results into txt_path
+    if os.path.exists(txt_path):
+        with open(txt_path, "a+") as f:
+            f.write("{} Base Testing: {}/{}\n".format(config.data.dataset, prec1, best_prec1))
+            f.write("{} Novel Testing: {}/{}\n".format(config.data.dataset, novel_prec1, novel_best_prec1))
+            f.close()
+    else:
+        with open(txt_path, "w") as f:
+            f.write("{} Base Testing: {}/{}\n".format(config.data.dataset, prec1, best_prec1))
+            f.write("{} Novel Testing: {}/{}\n".format(config.data.dataset, novel_prec1, novel_best_prec1))
+            f.close()
+    print("Results logged into {}".format(txt_path))
+
 
 if __name__ == "__main__":
     main()
